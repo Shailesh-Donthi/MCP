@@ -49,14 +49,36 @@ def resolve_output_preferences(
         or re.search(r"\b(?:text|txt|plain\s+text)\s+format\b", query_lower)
     )
 
+    asks_table = bool(
+        re.search(
+            r"\b(?:show|display|format|convert|render|give)\b[\w\s]*\b(?:in|as)\b[\w\s]*\b(?:table|tabular)\b",
+            query_lower,
+        )
+        or re.search(r"\b(?:table|tabular)\s+format\b", query_lower)
+    )
+    asks_chart = bool(
+        re.search(r"\b(?:chart|graph|plot|visual(?:ize|ise|ization|isation)?|representation)\b", query_lower)
+    )
+    chart_type = (
+        "pie"
+        if re.search(r"\bpie\b", query_lower)
+        else "line"
+        if re.search(r"\bline\b", query_lower)
+        else "bar"
+    )
+
     if asks_json:
         detected_format = "json"
+    elif asks_table:
+        detected_format = "table"
+    elif asks_chart:
+        detected_format = chart_type
     elif asks_tree:
         detected_format = "tree"
     elif asks_text:
         detected_format = "text"
 
-    if normalized in {"text", "json", "tree"}:
+    if normalized in {"text", "json", "tree", "table", "bar", "line", "pie"}:
         final_format = normalized
     elif normalized == "auto":
         final_format = detected_format
@@ -162,6 +184,136 @@ def to_tree_text(value: Any, root_name: str = "result") -> str:
     return "\n".join(lines)
 
 
+def _get_base_data(result: Dict[str, Any]) -> Any:
+    if not isinstance(result, dict):
+        return result
+    return result.get("data", result)
+
+
+def _rows_for_table(base: Any, max_rows: int = 50, max_cols: int = 12) -> Tuple[List[str], List[Dict[str, Any]]]:
+    rows = base if isinstance(base, list) else [base]
+    object_rows = [r for r in rows if isinstance(r, dict)]
+    if not object_rows:
+        return [], []
+
+    headers: List[str] = []
+    for row in object_rows[:max_rows]:
+        for key in row.keys():
+            if key not in headers:
+                headers.append(str(key))
+                if len(headers) >= max_cols:
+                    break
+        if len(headers) >= max_cols:
+            break
+    return headers, object_rows[:max_rows]
+
+
+def to_table_text(base: Any) -> str:
+    headers, rows = _rows_for_table(base)
+    if not headers or not rows:
+        # Fall back to JSON when tabular projection is not obvious.
+        return json.dumps(base, indent=2, default=str)
+
+    str_rows: List[List[str]] = []
+    for row in rows:
+        values: List[str] = []
+        for h in headers:
+            value = row.get(h)
+            if isinstance(value, (dict, list)):
+                text = json.dumps(value, default=str)
+            else:
+                text = "" if value is None else str(value)
+            values.append(text.replace("\n", " "))
+        str_rows.append(values)
+
+    widths = [len(h) for h in headers]
+    for row in str_rows:
+        for idx, cell in enumerate(row):
+            widths[idx] = min(max(widths[idx], len(cell)), 80)
+
+    def fmt_row(cells: List[str]) -> str:
+        return " | ".join(
+            (
+                (cell[: widths[i] - 3] + "...")
+                if len(cell) > widths[i] and widths[i] >= 4
+                else (cell[: widths[i]] if len(cell) > widths[i] else cell)
+            ).ljust(widths[i])
+            for i, cell in enumerate(cells)
+        )
+
+    header_line = fmt_row(headers)
+    divider = "-+-".join("-" * w for w in widths)
+    body_lines = [fmt_row(r) for r in str_rows]
+    return "\n".join([header_line, divider, *body_lines])
+
+
+def _extract_chart_series(base: Any) -> List[Dict[str, Any]]:
+    series: List[Dict[str, Any]] = []
+    if isinstance(base, dict) and isinstance(base.get("distribution"), list):
+        for item in base["distribution"]:
+            if not isinstance(item, dict):
+                continue
+            label = (
+                item.get("rankName")
+                or item.get("districtName")
+                or item.get("unitTypeName")
+                or item.get("name")
+                or "Unknown"
+            )
+            value = item.get("count", 0)
+            try:
+                n = float(value)
+            except Exception:
+                continue
+            if n >= 0:
+                series.append({"label": str(label), "value": n})
+    elif isinstance(base, list):
+        for item in base:
+            if not isinstance(item, dict):
+                continue
+            label = (
+                item.get("rankName")
+                or item.get("districtName")
+                or item.get("unitTypeName")
+                or item.get("name")
+                or item.get("label")
+                or "Unknown"
+            )
+            value = (
+                item.get("count")
+                if item.get("count") is not None
+                else item.get("value")
+                if item.get("value") is not None
+                else item.get("personnelCount")
+                if item.get("personnelCount") is not None
+                else item.get("totalPersonnel")
+                if item.get("totalPersonnel") is not None
+                else item.get("villageCount")
+            )
+            try:
+                n = float(value) if value is not None else None
+            except Exception:
+                n = None
+            if n is not None and n >= 0:
+                series.append({"label": str(label), "value": n})
+    elif isinstance(base, dict):
+        for key, value in base.items():
+            if isinstance(value, (int, float)):
+                series.append({"label": str(key), "value": float(value)})
+    return series
+
+
+def to_chart_payload(base: Any, chart_type: str = "bar") -> Dict[str, Any]:
+    series = _extract_chart_series(base)
+    # Keep payload small and stable.
+    series = sorted(series, key=lambda item: item["value"], reverse=True)[:20]
+    return {
+        "chart_type": chart_type,
+        "series": series,
+        "total": sum(item["value"] for item in series),
+    }
+
+
 def build_output_payload(
     query: str,
     response_text: str,
@@ -186,8 +338,20 @@ def build_output_payload(
         "data": result,
     }
 
+    chart_payload: Optional[Dict[str, Any]] = None
+    base_data = _get_base_data(result)
+
     if output_format == "json":
         rendered = json.dumps(response_bundle, indent=2, default=str)
+        content_type = "application/json"
+        extension = "json"
+    elif output_format == "table":
+        rendered = to_table_text(base_data)
+        content_type = "text/plain"
+        extension = "txt"
+    elif output_format in {"bar", "line", "pie"}:
+        chart_payload = to_chart_payload(base_data, chart_type=output_format)
+        rendered = json.dumps(chart_payload, indent=2, default=str)
         content_type = "application/json"
         extension = "json"
     elif output_format == "tree":
@@ -203,7 +367,7 @@ def build_output_payload(
     safe_tool = (routed_to or "query_result").replace(" ", "_")
     filename = f"{safe_tool}_{stamp}.{extension}"
 
-    return {
+    payload = {
         "format": output_format,
         "rendered": rendered,
         "download": {
@@ -213,3 +377,6 @@ def build_output_payload(
             "content": rendered if download_enabled else None,
         },
     }
+    if chart_payload is not None:
+        payload["chart"] = chart_payload
+    return payload

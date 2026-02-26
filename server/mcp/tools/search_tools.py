@@ -13,6 +13,7 @@ from mcp.tools.base_tool import BaseTool
 from mcp.schemas.context_schema import UserContext
 from mcp.query_builder.builder import SafeQueryBuilder
 from mcp.constants import Collections
+from mcp.router.extractors import normalize_common_entity_aliases, fuzzy_best_match
 
 
 class SearchPersonnelTool(BaseTool):
@@ -475,6 +476,25 @@ class SearchUnitTool(BaseTool):
         results = await self.db[Collections.UNIT].aggregate(pipeline).to_list(length=None)
         total = await self.db[Collections.UNIT].count_documents(query)
 
+        # Fuzzy retry for common misspellings/aliases (e.g., Arunelpet -> Arundelpet).
+        if (
+            total == 0
+            and isinstance(name, str)
+            and name.strip()
+            and not police_ref_id
+            and not city
+        ):
+            unit_names = await self.db[Collections.UNIT].distinct("name", {"isDelete": False})
+            best = fuzzy_best_match(name, unit_names, cutoff=0.76)
+            if isinstance(best, str) and best.strip() and best.strip().lower() != name.strip().lower():
+                search_conditions = self._build_unit_search_conditions(best, police_ref_id, city)
+                if district_condition:
+                    search_conditions.append(district_condition)
+                query = await self.apply_scope_filter(self._build_unit_base_query(search_conditions), context, "unit")
+                pipeline = self._build_unit_search_pipeline(query, skip, page_size)
+                results = await self.db[Collections.UNIT].aggregate(pipeline).to_list(length=None)
+                total = await self.db[Collections.UNIT].count_documents(query)
+
         return self.format_success_response(
             query_type="search_unit",
             data=results,
@@ -494,6 +514,7 @@ class SearchUnitTool(BaseTool):
     ) -> List[Dict[str, Any]]:
         conditions: List[Dict[str, Any]] = []
         if name:
+            name = normalize_common_entity_aliases(name)
             escaped_name = SafeQueryBuilder.escape_regex(name)
             conditions.append({"name": {"$regex": escaped_name, "$options": "i"}})
         if police_ref_id:
@@ -509,9 +530,17 @@ class SearchUnitTool(BaseTool):
     ) -> Optional[Dict[str, Any]]:
         if not district_name:
             return None
+        district_name = normalize_common_entity_aliases(district_name)
         district = await self.db[Collections.DISTRICT].find_one(
             {"name": {"$regex": f"^{district_name}$", "$options": "i"}, "isDelete": False}
         )
+        if not district:
+            names = await self.db[Collections.DISTRICT].distinct("name", {"isDelete": False})
+            best = fuzzy_best_match(district_name, names, cutoff=0.76)
+            if best:
+                district = await self.db[Collections.DISTRICT].find_one(
+                    {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False}
+                )
         if not district:
             return None
         return {"districtId": district["_id"]}

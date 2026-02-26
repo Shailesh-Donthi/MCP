@@ -14,6 +14,7 @@ from mcp.tools.base_tool import BaseTool
 from mcp.schemas.context_schema import UserContext
 from mcp.utils.date_parser import parse_date_range, get_date_range_description
 from mcp.constants import Collections
+from mcp.router.extractors import normalize_common_entity_aliases
 from mcp.core.logging_config import log_structured
 
 
@@ -481,7 +482,7 @@ class GetUnitCommandHistoryTool(BaseTool):
 
     async def _resolve_unit_name(self, unit_name: str) -> Optional[str]:
         """Resolve unit name with exact + tolerant matching (e.g., 'kuppam' -> 'Kuppam PS')."""
-        raw = (unit_name or "").strip()
+        raw = normalize_common_entity_aliases((unit_name or "").strip())
         if not raw:
             return None
         # Normalize common typo alias used by users/UI prompts.

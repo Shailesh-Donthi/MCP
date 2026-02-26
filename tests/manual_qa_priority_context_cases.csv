@@ -1,0 +1,101 @@
+id,category,type,steps_or_query,expected_result,repeat_count,notes
+CAP-001,Capability/General,query,help,Returns capability overview/help response,2,General chat capability
+CAP-002,Capability/General,query,what can you do,"Returns capability/help response, not arbitrary data result",2,General chat capability
+CAP-004,Capability/General,query,what reports can i ask for,Returns reporting/query categories,2,Capability phrasing
+CAP-009,Capability/General,query,can you answer follow up questions,Explains follow-up/context support,1,Chat capability
+CAP-011,Capability/General,query,can you go to next page after list results,Explains pagination support,1,Chat capability
+CAP-012,Capability/General,query,can you show json or table output,Explains formatting options,1,Chat capability
+CAP-016,Capability/Context,query,how do i ask for the 2nd result from a list,"Explains ordinal examples (2nd item, item #2)",1,Context capability
+CAP-019,Capability/Context,query,can i ask multiple steps in one message,Explains explicit chain syntax or clarification behavior,1,Chain capability
+CAP-021,Capability/Formatting,query,what output formats are supported,Lists text/json/tree/table/chart and downloads if supported,1,Formatting capability
+CLR-001,Clarification/Vague,query,info,"Returns clarification prompt, not tool error",2,Vague input
+CLR-004,Clarification/Vague,query,personnel,Returns clarification prompt or capability guidance,2,Regression target
+CLR-007,Clarification/Vague,query,who is there,"Returns clarification prompt, not person lookup",2,Regression target
+CLR-009,Clarification/Vague,query,show details of the one,Clarifies ordinal/which item if no resolvable context,2,Ordinal ambiguity
+PER-001,Personnel/Core,query,Tell me about P Bhavana,Returns personnel details and handles missing fields gracefully,2,Known regression target
+PER-002,Personnel/Core,query,What is the mobile number of A Ashok Kumar?,Returns mobile or exact-name duplicate-safe response,2,Personnel attribute
+PER-003,Personnel/Core,query,What is the email of A Babu?,Returns email or duplicate exact-name result set,2,Personnel attribute
+PER-005,Personnel/Core,query,What is the badge number of P Bhavana?,Returns missing badge response cleanly,2,Missing-field handling
+PER-006,Personnel/Core,query,Find personnel with name A Bhargavi,Returns personnel list/search results,2,Personnel search
+PER-012,Personnel/Core,query,What is the email of Unknown Person Test?,Clean not-found response without raw error details,2,Not-found handling
+PER-013,Personnel/Core,query,Who is Nil?,Returns duplicate exact-name results if multiple exist,1,Duplicate exact-name handling
+UNI-001,Units/Core,query,List units in Guntur district,Returns paginated units list with pagination metadata,2,Core unit listing
+UNI-003,Units/Core,query,Search unit Kuppam SDPO,Returns unit details for matching unit,2,Unit search
+UNI-004,Units/Core,query,Where is K V Palli PS?,Routes to unit search/location style response,2,Unit lookup routing
+UNI-007,Units/Core,query,info on kuppam district,"District-specific route, not personnel search",2,Routing regression
+UNI-008,Units/Core,query,info on all districts,"Routes to district list, not personnel search",2,Catalog routing
+DST-001,Districts/Hierarchy,query,List districts,Returns district list/count,2,Core district list
+DST-003,Districts/Hierarchy,query,What is the unit hierarchy for Chittoor district?,"Returns hierarchy tree, not flat list",2,Hierarchy
+DST-006,Districts/Hierarchy,query,Show units in the 2nd district,"After district list, ordinal district resolves to units list",2,Priority 1 district ordinal
+DST-008,Districts/Hierarchy,sequence,Same chat: 'List districts' -> 'personnel distribution in the 1st one',Resolves ordinal district and returns distribution,2,District ordinal + distribution
+VIL-001,Village Mapping/Core,query,Which villages are mapped to K V Palli PS?,Returns village coverage with counts or safe fallback,2,Village mapping
+VIL-004,Village Mapping/Core,query,Units without village mapping in Chittoor district,Returns unmapped units summary/list,2,Missing mapping
+VIL-006,Village Mapping/Core,query,Which villages are mapped to Unknown PS?,Returns clean unit-not-found response,2,Not-found handling
+VIL-009,Village Mapping/Core,query,villlage mapping for K V Palli PS,Typo in 'village' handled,2,Typo tolerance
+OFF-001,Officer/Command,query,Who is the SHO of Kothapet PS?,Routes to officer/command lookup with clean result,2,Officer query
+OFF-003,Officer/Command,query,Who is the SDPO of Kuppam?,Returns current officer or missing command data fallback,2,Officer query
+OFF-004,Officer/Command,query,who is spdo kuppam,SPDO typo normalizes to SDPO route,2,Typo normalization
+OFF-008,Officer/Command,query,Command history of Kuppam SDPO,Returns command history or clean no-history fallback,2,Command history
+OFF-009,Officer/Command,query,Who is the SHO of Unknown PS?,Returns clean unknown-unit fallback,2,Not-found handling
+TRF-001,Transfers/Core,query,Show recent transfers in the last 30 days,Returns transfers or clear no-transfer message,2,Transfers
+TRF-003,Transfers/Core,query,Recent transfers in Guntur district in the last 15 days,District + duration filter handled,2,Transfers filtered
+TRF-005,Transfers/Core,query,Show recent transfers in the last -5 days,Validation or safe fallback; no crash,1,Invalid boundary
+DSTB-001,Distribution/Core,query,Show available ranks,Returns rank distribution/available ranks,2,Distribution
+DSTB-002,Distribution/Core,query,Personnel distribution in Guntur district,Returns district personnel distribution,2,Distribution
+DSTB-003,Distribution/Core,query,Rank-wise personnel in Chittoor,Returns district rank distribution,2,Distribution
+DSTB-005,Distribution/Core,query,personell distribution,"Typo routes to personnel distribution, not search_personnel error",2,Typo regression
+DSTB-007,Distribution/Core,query,show personnel distribution by district,Returns grouped district distribution,2,Distribution grouping
+TYP-001,Typo/Fuzzy,query,Search unit Arunelpet PS,Resolves via alias/fuzzy to closest unit or safe not-found,3,Arunelpet alias
+TYP-002,Typo/Fuzzy,query,Village coverage for Arunelpet PS,Alias/fuzzy applies in village coverage lookup,3,Arunelpet alias
+TYP-003,Typo/Fuzzy,query,List units in Anantapurm district,Fuzzy district resolution or safe fallback,3,District fuzzy
+TYP-005,Typo/Fuzzy,query,list all disctricts,Typo in districts keyword routes correctly,3,Routing typo
+TYP-011,Typo/Fuzzy,query,info on kuppam dist,Dist abbreviation handled as district route,2,Routing typo/abbr
+TYP-013,Typo/Fuzzy,query,spdo of Kuppam disctrict,Combined typos still route to officer command,2,Multi-typo query
+ORD-001,Context/Ordinal,sequence,Same chat: 'List all SIs in Chittoor district' -> 'Show details of the 1st one',Resolves first personnel item from current page,3,Priority 1
+ORD-003,Context/Ordinal,sequence,Same chat: 'List all SIs in Chittoor district' -> 'show me item #3',Resolves third personnel item,3,Priority 1
+ORD-004,Context/Ordinal,sequence,Same chat: 'List all SIs in Chittoor district' -> 'email of the 2nd one',Resolves second personnel and returns email/missing-email,3,Ordinal attribute
+ORD-006,Context/Ordinal,sequence,Same chat: 'List units in Guntur district' -> 'Who is the SHO of the 2nd one?',Resolves second unit and routes to officer/command lookup,3,Unit ordinal + officer
+ORD-008,Context/Ordinal,sequence,Same chat: 'List districts' -> 'List units in the 2nd one',Resolves ordinal district and routes to unit list,3,District ordinal
+ORD-010,Context/Ordinal,sequence,Same chat: 'List districts' -> 'personnel distribution in the 3rd one',Resolves ordinal district and routes to distribution,3,District ordinal
+PAG-001,Context/Pagination,sequence,Same chat: 'List all SIs in Chittoor district' -> 'next page',Moves to page 2 of same list context,3,Pagination
+PAG-002,Context/Pagination,sequence,Same chat: list SIs -> 'next page' -> 'previous page',Returns to prior page,3,Pagination
+PAG-005,Context/Pagination,sequence,Fresh chat -> 'next page',Returns no-active-pagination message,2,No-context boundary
+PAG-006,Context/Pagination,sequence,Same chat: units without village mapping -> pager button Next,"Updates existing bubble in-place, preserves list context",3,UI + backend context
+PAG-007,Context/Pagination,sequence,Same chat: units without village mapping -> pager Next -> 'Show details of the 1st one',Ordinal resolves on new page items,3,Page-aware ordinal
+PRO-001,Context/Pronoun,sequence,Same chat: 'Tell me about P Bhavana' -> 'What is the email?',Attribute-only follow-up reuses person context,3,Person context
+PRO-004,Context/Pronoun,sequence,Same chat: 'Show details of the 2nd one' (from SI list) -> 'What is their mobile number?',Pronoun resolves to selected person,3,Pronoun + ordinal
+PRO-006,Context/Pronoun,sequence,Same chat: 'Search unit K V Palli PS' -> 'Who is the SHO there?',Pronoun/place reference resolves to selected unit,3,Unit pronoun
+PRO-008,Context/Pronoun,sequence,Same chat: 'List districts' -> 'show hierarchy of the 2nd one' -> 'List units in that district',District pronoun/selection stays grounded,2,District context
+FMT-001,Formatting/No Context,query,show as json,Returns helpful no-previous-result message,2,No context formatting
+FMT-002,Formatting/No Context,query,show as table,Returns helpful no-previous-result message,2,No context formatting
+FMT-004,Formatting/No Context,query,make a bar chart,Returns chart guidance (needs numeric prior result),2,No context formatting
+FMT-007,Formatting/With Context,sequence,Same chat: 'Personnel distribution in Guntur district' -> 'show as json',Returns JSON-formatted output for previous result,2,Formatting follow-up
+FMT-008,Formatting/With Context,sequence,Same chat: distribution -> 'show as table',Returns table-formatted output,2,Formatting follow-up
+FMT-010,Formatting/With Context,sequence,Same chat: distribution -> 'make a bar chart',Returns chart payload/render for numeric distribution,2,Formatting follow-up
+FMT-013,Formatting/With Context,sequence,Same chat: 'List units in Guntur district' -> 'show as table',Tabular render works for list-of-objects,2,Table converter
+PREF-001,Preferences,query,Prefer JSON format for future results,Acknowledges and stores JSON preference,2,Preference state
+PREF-002,Preferences,sequence,Same chat: set preferred JSON -> 'List units in Guntur district',API output uses preferred JSON format unless overridden,2,Preference persistence
+PREF-003,Preferences,query,From now on show results as table,Acknowledges and stores table preference,2,Preference state
+PREF-006,Preferences,sequence,Same chat: preferred JSON -> 'show as table' -> 'List districts',Explicit override works once; subsequent query returns preferred JSON,2,Override precedence
+CHN-001,Chains/Explicit,query,List units in Guntur district then show details of the 1st one then who is the SHO there,Executes 3-step chain with combined response and correct state handoff,3,Priority chain
+CHN-003,Chains/Explicit,query,List districts -> List units in the 1st one -> show hierarchy of the 1st one,Executes chain and maintains per-step context,2,Arrow chain syntax
+CHN-004,Chains/Explicit,query,Personnel distribution in Guntur district + show as table + make a bar chart,Executes explicit 3-step chain with formatting transitions,2,Plus chain syntax
+CHN-006,Chains/Explicit,query,List all SIs in Chittoor district then next page then show details of the 1st one,Chain executes pagination and page-aware ordinal follow-up,2,Chain + pagination
+CHN-012,Chains/Explicit,query,Search unit Arunelpet PS then who is the SHO there,Chain includes alias/fuzzy unit resolution,2,Chain + fuzzy
+CHC-001,Chains/Clarification,query,Who is the SHO and SDPO of Kuppam?,Clarifies compound officer query or applies documented priority safely,2,Multi-intent ambiguity
+CHC-002,Chains/Clarification,query,List units in Guntur district and who is the SHO,Clarifies missing target for SHO in compound query,2,Compound ambiguity
+CHC-005,Chains/Clarification,query,What is the email of A Babu and mobile number of A Ashok Kumar,Clarifies two-person request instead of merging,2,Compound person query
+CHC-006,Chains/Clarification,query,List units in Guntur district and not in Guntur district,Clarifies contradiction-safe handling,2,Contradictory intent
+ERR-001,Error Recovery,sequence,Same chat: 'Search unit ####' -> 'List units in Guntur district',Second query succeeds after invalid input,2,Recovery
+ERR-003,Error Recovery,sequence,Same chat: 'Who is the SHO of Unknown PS?' -> 'Who is the SHO of Kothapet PS?',Known query succeeds after unknown-unit fallback,2,Recovery
+ERR-004,Error Recovery,sequence,Same chat: 'What is the email of Unknown Person Test?' -> 'Tell me about P Bhavana',Known person query succeeds after person not-found,2,Recovery
+ERR-006,Error Recovery,sequence,Same chat: 'List all SIs in Chittoor district' -> 'email of the 20th one' (out of page range),Clarifies/out-of-range handling without crash,2,Ordinal range boundary
+ERR-008,Error Recovery,sequence,Same chat: failed chart request on non-numeric data -> valid numeric distribution -> 'make a bar chart',App recovers and chart works on next valid dataset,1,Formatting recovery
+ISO-001,Isolation/Cross-Chat,sequence,Chat A: 'List all SIs in Chittoor district' -> 'next page'; Chat B: 'List units in Guntur district' -> 'next page',Pagination state remains isolated per chat,2,Cross-chat isolation
+ISO-002,Isolation/Cross-Chat,sequence,Chat A: select person -> Chat B: 'What is their mobile number?',No person context leakage to Chat B,2,Cross-chat isolation
+ISO-003,Isolation/Cross-Chat,sequence,Chat A: set preferred JSON -> Chat B: 'List districts',Output preference does not leak across chats,2,Preference isolation
+ISO-006,Isolation/Cross-Chat,sequence,"After backend restart, old chat -> 'next page'",Returns clear no-pagination/desync-safe message,1,Restart behavior
+API-001,API/Inspection,api,POST /api/v1/ask with list query (inspect response JSON),"Response includes `output`, `session_id`, and route metadata",1,API contract
+API-002,API/Inspection,api,List units in Guntur district (inspect `data.metadata.list_context`),Contains source_tool/entity_type/page/page_size/total and indexed items,1,Priority 1 metadata
+API-004,API/Inspection,api,Personnel distribution in Guntur district -> make a bar chart (inspect `output.chart`),`output.chart.series` exists with numeric values and chart_type,1,Backend chart payload
+API-006,API/Inspection,api,Explicit chain query (inspect response),Returns combined response and `understood_as=complex_query_chain`,1,Chain API verification

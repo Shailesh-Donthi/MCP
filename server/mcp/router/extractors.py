@@ -1,10 +1,73 @@
 """Entity extraction helpers for natural language routing."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from difflib import get_close_matches
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 import re
 
 
+COMMON_QUERY_TYPO_MAP: Dict[str, str] = {
+    "personell": "personnel",
+    "disctrict": "district",
+    "disctricts": "districts",
+    "heirarchy": "hierarchy",
+    "villlage": "village",
+    "whch": "which",
+    "spdo": "sdpo",
+    # Data alias / common misspelling observed in field usage
+    "arunelpet": "arundelpet",
+}
+
+
+def normalize_common_query_typos(text: str) -> str:
+    if not text:
+        return text
+    normalized = str(text)
+    for typo, canonical in COMMON_QUERY_TYPO_MAP.items():
+        normalized = re.sub(rf"\b{re.escape(typo)}\b", canonical, normalized, flags=re.IGNORECASE)
+    return normalized
+
+
+def normalize_common_entity_aliases(text: str) -> str:
+    """Normalize common domain aliases/misspellings while preserving user wording."""
+    return normalize_common_query_typos(text or "")
+
+
+def fuzzy_best_match(
+    candidate: str,
+    choices: Iterable[str],
+    *,
+    cutoff: float = 0.84,
+) -> Optional[str]:
+    raw = re.sub(r"\s+", " ", str(candidate or "").strip())
+    if not raw:
+        return None
+    normalized_to_original: Dict[str, str] = {}
+    normalized_choices: List[str] = []
+    for item in choices:
+        if not isinstance(item, str):
+            continue
+        original = item.strip()
+        if not original:
+            continue
+        norm = re.sub(r"[^a-z0-9]+", " ", normalize_common_query_typos(original).lower()).strip()
+        if not norm:
+            continue
+        if norm not in normalized_to_original:
+            normalized_to_original[norm] = original
+            normalized_choices.append(norm)
+    if not normalized_choices:
+        return None
+    probe = re.sub(r"[^a-z0-9]+", " ", normalize_common_query_typos(raw).lower()).strip()
+    if not probe:
+        return None
+    matches = get_close_matches(probe, normalized_choices, n=1, cutoff=cutoff)
+    if not matches:
+        return None
+    return normalized_to_original.get(matches[0])
+
+
 def extract_place_hint(text: str) -> Optional[str]:
+    text = normalize_common_query_typos(text or "")
     filler_words = {
         "give", "me", "info", "about", "details", "detail", "show", "list",
         "what", "which", "is", "are", "the", "on", "in", "for", "of", "at",
@@ -57,6 +120,7 @@ def extract_place_hint(text: str) -> Optional[str]:
 
 
 def extract_rank_hint(text: str) -> Optional[str]:
+    text = normalize_common_query_typos(text or "")
     rank_patterns: List[Tuple[str, str]] = [
         (r"\bcircle\s+inspectors?\b", "Circle Inspector"),
         (r"\binspector\s+general\s+of\s+police\b", "Inspector General of Police"),
@@ -85,6 +149,7 @@ def extract_rank_hint(text: str) -> Optional[str]:
 
 
 def extract_user_id_hint(text: str) -> Optional[str]:
+    text = normalize_common_query_typos(text or "")
     for pattern in [
         r"\buser\s*[-_:]?\s*(\d{6,12})\b",
         r"\buser\s*id\s*[:\-]?\s*(\d{6,12})\b",
@@ -97,6 +162,7 @@ def extract_user_id_hint(text: str) -> Optional[str]:
 
 
 def extract_mobile_hint(text: str) -> Optional[str]:
+    text = normalize_common_query_typos(text or "")
     if not text:
         return None
     candidates = re.findall(r"(?:\+?\d[\d\s\-]{8,16}\d)", text)
@@ -114,6 +180,7 @@ def extract_mobile_hint(text: str) -> Optional[str]:
 def extract_ordinal_index(text: str) -> Optional[int]:
     if not text:
         return None
+    text = normalize_common_query_typos(text)
     ordinal_words = {
         "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
         "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
@@ -128,6 +195,7 @@ def extract_ordinal_index(text: str) -> Optional[int]:
 def extract_list_reference_index(text: str) -> Optional[int]:
     if not text:
         return None
+    text = normalize_common_query_typos(text)
     for pattern in [
         r"\b(?:about|of|on|for)\s+#?(\d{1,2})\b",
         r"\b(?:item|number|no\.?)\s+#?(\d{1,2})\b",
@@ -144,12 +212,14 @@ def extract_list_reference_index(text: str) -> Optional[int]:
 def extract_user_id_from_list_item(text: str, index_1_based: int) -> Optional[str]:
     if not text or not index_1_based or index_1_based < 1:
         return None
+    text = normalize_common_query_typos(text)
     pattern = rf"^\s*{index_1_based}\.\s*(?:User\s*)?(\d{{6,12}})\b"
     m = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
     return m.group(1) if m else None
 
 
 def extract_person_hint(text: str) -> Optional[str]:
+    text = normalize_common_query_typos(text or "")
     patterns = [
         r"\bwho\s+is\s+([A-Za-z][A-Za-z\s\.\-']{1,60})(?:\?|$)",
         r"\btell\s+me\s+about\s+([A-Za-z][A-Za-z\s\.\-']{1,60})(?:\?|$)",
@@ -183,6 +253,7 @@ def extract_person_hint(text: str) -> Optional[str]:
 
 
 def extract_unit_hint(text: str) -> Optional[str]:
+    text = normalize_common_query_typos(text or "")
     patterns = [
         r"(?:which\s+villages?.*?(?:mapped|assigned|covered)\s+(?:to|in|for|by)|village\s+(?:coverage|mapping)\s+for)\s+([A-Za-z0-9\.\-\s]+?\s+(?:ps|police station|station|dpo|circle|sdpo|spdo|range|ups))(?:\s*\([^)]*\))?(?:\?|$)",
         r"(?:where\s+is|search\s+unit|find\s+unit|locate\s+unit)\s+([A-Za-z0-9\.\-\s]+?\s+(?:ps|police station|station|dpo|circle|sdpo|spdo|range|ups))(?:\s*\([^)]*\))?(?:\?|$)",
@@ -208,7 +279,7 @@ def extract_unit_hint(text: str) -> Optional[str]:
 
 
 def is_followup_district_query(text: str) -> bool:
-    q = (text or "").lower()
+    q = normalize_common_query_typos(text or "").lower()
     return bool(
         re.search(r"\b(their|them|they|those|these)\b", q)
         and re.search(r"\bdistricts?\b", q)

@@ -10,6 +10,7 @@ from bson import ObjectId
 from mcp.tools.base_tool import BaseTool
 from mcp.schemas.context_schema import UserContext
 from mcp.constants import Collections
+from mcp.router.extractors import normalize_common_entity_aliases, fuzzy_best_match
 
 
 class FindMissingVillageMappingsTool(BaseTool):
@@ -388,6 +389,7 @@ class GetVillageCoverageTool(BaseTool):
 
         # Resolve unit name to ID
         if not unit_id and unit_name:
+            unit_name = normalize_common_entity_aliases(unit_name)
             from mcp.query_builder.builder import SafeQueryBuilder
             escaped_name = SafeQueryBuilder.escape_regex(unit_name)
             unit = await self.db[Collections.UNIT].find_one(
@@ -399,13 +401,28 @@ class GetVillageCoverageTool(BaseTool):
             if unit:
                 unit_id = str(unit["_id"])
             else:
-                return self.format_error_response(
-                    "NOT_FOUND",
-                    f"Unit not found: {unit_name}",
-                )
+                unit_names = await self.db[Collections.UNIT].distinct("name", {"isDelete": False})
+                best = fuzzy_best_match(unit_name, unit_names, cutoff=0.76)
+                if best:
+                    unit = await self.db[Collections.UNIT].find_one(
+                        {
+                            "name": {"$regex": f"^{__import__('re').escape(best)}$", "$options": "i"},
+                            "isDelete": False,
+                        }
+                    )
+                    if unit:
+                        unit_id = str(unit["_id"])
+                if unit_id:
+                    pass
+                else:
+                    return self.format_error_response(
+                        "NOT_FOUND",
+                        f"Unit not found: {unit_name}",
+                    )
 
         # Resolve district name
         if not district_id and district_name:
+            district_name = normalize_common_entity_aliases(district_name)
             district = await self.db[Collections.DISTRICT].find_one(
                 {
                     "name": {"$regex": f"^{district_name}$", "$options": "i"},
@@ -414,6 +431,18 @@ class GetVillageCoverageTool(BaseTool):
             )
             if district:
                 district_id = str(district["_id"])
+            else:
+                district_names = await self.db[Collections.DISTRICT].distinct("name", {"isDelete": False})
+                best = fuzzy_best_match(district_name, district_names, cutoff=0.76)
+                if best:
+                    district = await self.db[Collections.DISTRICT].find_one(
+                        {
+                            "name": {"$regex": f"^{__import__('re').escape(best)}$", "$options": "i"},
+                            "isDelete": False,
+                        }
+                    )
+                    if district:
+                        district_id = str(district["_id"])
 
         # Build query
         village_match: Dict[str, Any] = {"isDelete": False}

@@ -27,6 +27,7 @@ from mcp.router.extractors import (
     extract_mobile_hint,
     extract_ordinal_index,
     extract_list_reference_index,
+    normalize_common_query_typos,
 )
 
 logger = logging.getLogger(__name__)
@@ -213,6 +214,7 @@ class IntelligentQueryHandler:
                     if isinstance(uid, str) and uid.strip():
                         list_user_ids.append(uid.strip())
         state["last_list_user_ids"] = list_user_ids[:100]
+        self._set_last_list_context(state, tool_name, result)
 
         # Track last resolved person so pronoun follow-ups can remain grounded.
         if tool_name == "search_personnel" and isinstance(data_list, list) and data_list:
@@ -229,6 +231,12 @@ class IntelligentQueryHandler:
         unit_names = self._extract_unit_names_from_result(tool_name, result)
         if unit_names:
             state["last_unit_names"] = unit_names[:300]
+
+        self._update_selected_entity_from_result(state, tool_name, result)
+        if isinstance(result, dict) and not result.get("success", False):
+            state["last_error"] = result.get("error")
+        elif isinstance(result, dict):
+            state.pop("last_error", None)
 
     def _extract_unit_names_from_result(self, tool_name: str, result: Dict[str, Any]) -> List[str]:
         out: List[str] = []
@@ -270,15 +278,247 @@ class IntelligentQueryHandler:
             add_name(data.get("unitName"))
         return out
 
+    def _infer_entity_type_from_item(self, item: Dict[str, Any], source_tool: str) -> str:
+        if not isinstance(item, dict):
+            return "unknown"
+        if item.get("userId") or source_tool in {"search_personnel", "query_personnel_by_rank", "query_personnel_by_unit"}:
+            if item.get("userId") or item.get("badgeNo") or item.get("rank"):
+                return "personnel"
+        if item.get("district_id") or item.get("district_name"):
+            if source_tool == "list_districts" or ("district_id" in item and "district_name" in item and len(item.keys()) <= 4):
+                return "district"
+        unitish_keys = {
+            "unitId", "unitName", "policeReferenceId", "unitType", "responsibleUserName", "responsibleOfficer",
+            "personnelCount", "villageCount",
+        }
+        if source_tool in {
+            "list_units_in_district", "search_unit", "find_missing_village_mappings", "get_village_coverage",
+            "get_unit_hierarchy", "get_unit_command_history",
+        } or any(k in item for k in unitish_keys):
+            return "unit"
+        if "districtName" in item and ("count" in item or "totalPersonnel" in item):
+            return "district"
+        return "unknown"
+
+    def _list_item_label(self, item: Dict[str, Any], entity_type: str) -> str:
+        if entity_type == "personnel":
+            return str(item.get("name") or item.get("userId") or "Unknown")
+        if entity_type == "district":
+            return str(item.get("district_name") or item.get("districtName") or item.get("name") or "Unknown")
+        return str(item.get("name") or item.get("unitName") or item.get("districtName") or "Unknown")
+
+    def _extract_list_context_items(self, tool_name: str, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if not isinstance(result, dict):
+            return []
+        data = result.get("data")
+        items: List[Dict[str, Any]] = []
+        raw_items: List[Dict[str, Any]] = []
+
+        if isinstance(data, list):
+            raw_items = [item for item in data if isinstance(item, dict)]
+        elif tool_name == "get_unit_hierarchy" and isinstance(data, dict):
+            hierarchy_roots = data.get("units") if isinstance(data.get("units"), list) else [data]
+            for root in hierarchy_roots:
+                if isinstance(root, dict):
+                    raw_items.append(root)
+        elif isinstance(data, dict):
+            # Some tools return a single structured unit/person object.
+            raw_items = [data]
+
+        pagination = result.get("pagination") if isinstance(result.get("pagination"), dict) else {}
+        page = int((pagination or {}).get("page") or 1)
+        page_size = int((pagination or {}).get("page_size") or max(1, len(raw_items) or 1))
+        base_index = (max(page, 1) - 1) * max(page_size, 1)
+
+        for idx, item in enumerate(raw_items, start=1):
+            entity_type = self._infer_entity_type_from_item(item, tool_name)
+            entry: Dict[str, Any] = {
+                "entity_type": entity_type,
+                "page_index": idx,
+                "absolute_index": base_index + idx,
+                "label": self._list_item_label(item, entity_type),
+            }
+            if entity_type == "personnel":
+                if isinstance(item.get("userId"), str):
+                    entry["user_id"] = item.get("userId")
+                if isinstance(item.get("name"), str):
+                    entry["name"] = item.get("name")
+                if isinstance(item.get("_id"), str):
+                    entry["id"] = item.get("_id")
+            elif entity_type == "district":
+                district_name = item.get("district_name") or item.get("districtName") or item.get("name")
+                district_id = item.get("district_id") or item.get("districtId") or item.get("_id")
+                if isinstance(district_name, str):
+                    entry["district_name"] = district_name
+                    entry["name"] = district_name
+                if isinstance(district_id, str):
+                    entry["district_id"] = district_id
+                    entry["id"] = district_id
+            else:
+                unit_name = item.get("name") or item.get("unitName")
+                unit_id = item.get("_id") or item.get("unitId")
+                district_name = item.get("districtName") or (
+                    item.get("district", {}).get("name") if isinstance(item.get("district"), dict) else None
+                )
+                if isinstance(unit_name, str):
+                    entry["unit_name"] = unit_name
+                    entry["name"] = unit_name
+                if isinstance(unit_id, str):
+                    entry["unit_id"] = unit_id
+                    entry["id"] = unit_id
+                if isinstance(district_name, str):
+                    entry["district_name"] = district_name
+            items.append(entry)
+        return items
+
+    def _set_last_list_context(self, state: Dict[str, Any], tool_name: str, result: Dict[str, Any]) -> None:
+        items = self._extract_list_context_items(tool_name, result)
+        if not items:
+            return
+        pagination = result.get("pagination") if isinstance(result, dict) else None
+        entity_type = items[0].get("entity_type") if items else "unknown"
+        list_context = {
+            "source_tool": tool_name,
+            "entity_type": entity_type,
+            "page": int((pagination or {}).get("page") or 1) if isinstance(pagination, dict) else 1,
+            "page_size": int((pagination or {}).get("page_size") or len(items) or 1) if isinstance(pagination, dict) else (len(items) or 1),
+            "total": int((pagination or {}).get("total") or len(items)) if isinstance(pagination, dict) else len(items),
+            "items": items[:200],
+        }
+        state["last_list_context"] = list_context
+        # Add list position indices to response metadata so clients/debug logs can inspect stable references.
+        if isinstance(result, dict):
+            metadata = result.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+                result["metadata"] = metadata
+            metadata["list_context"] = {
+                "entity_type": list_context["entity_type"],
+                "source_tool": list_context["source_tool"],
+                "page": list_context["page"],
+                "page_size": list_context["page_size"],
+                "total": list_context["total"],
+                "items": [
+                    {
+                        "page_index": item.get("page_index"),
+                        "absolute_index": item.get("absolute_index"),
+                        "label": item.get("label"),
+                        "entity_type": item.get("entity_type"),
+                    }
+                    for item in items[:50]
+                ],
+            }
+
+    def _update_selected_entity_from_result(self, state: Dict[str, Any], tool_name: str, result: Dict[str, Any]) -> None:
+        if not isinstance(result, dict) or not result.get("success", False):
+            return
+        items = self._extract_list_context_items(tool_name, result)
+        if len(items) == 1:
+            state["selected_entity"] = dict(items[0])
+            if items[0].get("entity_type") == "unit" and isinstance(items[0].get("unit_name"), str):
+                state["last_unit_name"] = items[0]["unit_name"]
+            if items[0].get("entity_type") == "district" and isinstance(items[0].get("district_name"), str):
+                state["last_place"] = items[0]["district_name"]
+            if items[0].get("entity_type") == "personnel":
+                if isinstance(items[0].get("user_id"), str):
+                    state["last_person_user_id"] = items[0]["user_id"]
+                if isinstance(items[0].get("name"), str):
+                    state["last_person_name"] = items[0]["name"]
+            return
+
+        data = result.get("data")
+        if tool_name == "get_unit_command_history" and isinstance(data, dict):
+            unit_name = data.get("unitName")
+            unit_id = data.get("unitId")
+            if isinstance(unit_name, str) and unit_name.strip():
+                state["selected_entity"] = {
+                    "entity_type": "unit",
+                    "unit_name": unit_name.strip(),
+                    "unit_id": unit_id if isinstance(unit_id, str) else None,
+                    "label": unit_name.strip(),
+                }
+                state["last_unit_name"] = unit_name.strip()
+
+    def _get_last_list_item_by_ordinal(self, state: Dict[str, Any], query: str) -> Optional[Dict[str, Any]]:
+        idx = extract_ordinal_index(query) or extract_list_reference_index(query)
+        if not isinstance(idx, int) or idx < 1:
+            return None
+        list_context = state.get("last_list_context")
+        if not isinstance(list_context, dict):
+            return None
+        items = list_context.get("items")
+        if not isinstance(items, list):
+            return None
+        if idx <= len(items):
+            item = items[idx - 1]
+            return item if isinstance(item, dict) else None
+        return None
+
+    def _query_mentions_person_detail(self, q: str) -> bool:
+        return bool(__import__("re").search(
+            r"\b(person|personnel|officer|their|them|they|his|her|email|e-?mail|mobile|phone|dob|date of birth|address|blood group|badge|rank|designation|details?)\b",
+            q,
+        ))
+
+    def _query_mentions_unit_or_officer(self, q: str) -> bool:
+        return bool(__import__("re").search(
+            r"\b(unit|station|ps|sho|sdpo|spdo|dpo|in charge|command history|villages?|mapping|coverage|where is|details?)\b",
+            q,
+        ))
+
+    def _query_mentions_district(self, q: str) -> bool:
+        return bool(__import__("re").search(r"\b(district|districts|units in|hierarchy)\b", q))
+
     def _inject_state_hints(self, session_id: str, query: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         state = self._get_state(session_id)
         q = (query or "").lower()
         new_args = dict(arguments or {})
+        ordinal_item = self._get_last_list_item_by_ordinal(state, q)
+        if ordinal_item:
+            state["selected_entity"] = dict(ordinal_item)
+            entity_type = ordinal_item.get("entity_type")
+            if entity_type == "personnel":
+                if not new_args.get("user_id") and ordinal_item.get("user_id"):
+                    new_args["user_id"] = ordinal_item["user_id"]
+                elif not new_args.get("name") and ordinal_item.get("name"):
+                    new_args["name"] = ordinal_item["name"]
+            elif entity_type == "unit":
+                if self._query_mentions_unit_or_officer(q):
+                    if not new_args.get("unit_name") and ordinal_item.get("unit_name"):
+                        new_args["unit_name"] = ordinal_item["unit_name"]
+                    if not new_args.get("name") and ordinal_item.get("unit_name"):
+                        new_args["name"] = ordinal_item["unit_name"]
+                if not new_args.get("district_name") and ordinal_item.get("district_name"):
+                    new_args["district_name"] = ordinal_item["district_name"]
+            elif entity_type == "district":
+                if not new_args.get("district_name") and ordinal_item.get("district_name"):
+                    new_args["district_name"] = ordinal_item["district_name"]
+
         if not new_args.get("user_id"):
-            idx = extract_ordinal_index(q) or extract_list_reference_index(q)
             ids = state.get("last_list_user_ids") or []
-            if isinstance(idx, int) and idx >= 1 and idx <= len(ids):
+            idx = extract_ordinal_index(q) or extract_list_reference_index(q)
+            if isinstance(idx, int) and 1 <= idx <= len(ids):
                 new_args["user_id"] = ids[idx - 1]
+
+        selected = state.get("selected_entity")
+        if isinstance(selected, dict) and __import__("re").search(r"\b(their|them|they|that one|this one|that unit|this unit|there)\b", q):
+            selected_type = selected.get("entity_type")
+            if selected_type == "personnel":
+                if not new_args.get("user_id") and selected.get("user_id"):
+                    new_args["user_id"] = selected["user_id"]
+                if not new_args.get("name") and selected.get("name"):
+                    new_args["name"] = selected["name"]
+            elif selected_type == "unit":
+                if not new_args.get("unit_name") and selected.get("unit_name"):
+                    new_args["unit_name"] = selected["unit_name"]
+                if not new_args.get("name") and selected.get("unit_name"):
+                    new_args["name"] = selected["unit_name"]
+                if not new_args.get("district_name") and selected.get("district_name"):
+                    new_args["district_name"] = selected["district_name"]
+            elif selected_type == "district":
+                if not new_args.get("district_name") and selected.get("district_name"):
+                    new_args["district_name"] = selected["district_name"]
+
         if not new_args.get("rank_name") and __import__("re").search(r"\b(their|them|they|those|these)\b", q):
             if state.get("last_rank"):
                 new_args["rank_name"] = state["last_rank"]
@@ -442,6 +682,184 @@ class IntelligentQueryHandler:
             return -1
         return 0
 
+    def _extract_output_preference(self, query: str) -> Optional[str]:
+        q = (query or "").lower().strip()
+        if not q:
+            return None
+        if not __import__("re").search(r"\b(prefer|default|always|from now on)\b", q):
+            return None
+        if "json" in q:
+            return "json"
+        if __import__("re").search(r"\btable|tabular\b", q):
+            return "table"
+        if __import__("re").search(r"\btree\b", q):
+            return "tree"
+        if __import__("re").search(r"\btext|plain text|txt\b", q):
+            return "text"
+        if __import__("re").search(r"\bpie\b", q):
+            return "pie"
+        if __import__("re").search(r"\bline\b", q):
+            return "line"
+        if __import__("re").search(r"\bbar\b", q):
+            return "bar"
+        if __import__("re").search(r"\bchart|graph|plot|visual\b", q):
+            return "bar"
+        return None
+
+    def _is_output_preference_query(self, query: str) -> bool:
+        q = (query or "").lower()
+        return bool(
+            self._extract_output_preference(query)
+            and __import__("re").search(r"\b(prefer|default|always|from now on)\b", q)
+        )
+
+    def _split_complex_query_chain(self, query: str) -> List[str]:
+        q = (query or "").strip()
+        if not q:
+            return []
+        # Support explicit chain syntax only; avoid splitting natural phrases like
+        # "SHO and SDPO of Kuppam" which should still clarify.
+        normalized = q.replace("\n", " ").strip()
+        if not __import__("re").search(r"\b(and then|then)\b|->|[+]|;", normalized, __import__("re").IGNORECASE):
+            return []
+        parts = __import__("re").split(
+            r"\s*(?:->|;+\s*|\band then\b|\bthen\b|\s+\+\s+)\s*",
+            normalized,
+            flags=__import__("re").IGNORECASE,
+        )
+        cleaned = [p.strip(" .") for p in parts if p and p.strip(" .")]
+        if len(cleaned) < 2:
+            return []
+        return cleaned[:3]
+
+    def _apply_ordinal_route_overrides(
+        self,
+        query: str,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> Tuple[str, Dict[str, Any]]:
+        item = self._get_last_list_item_by_ordinal(state, query)
+        if not item:
+            return tool_name, arguments
+        args = dict(arguments or {})
+        entity_type = item.get("entity_type")
+        q = (query or "").lower()
+        if entity_type == "personnel" and self._query_mentions_person_detail(q):
+            if item.get("user_id"):
+                args["user_id"] = item["user_id"]
+            elif item.get("name"):
+                args["name"] = item["name"]
+            return "search_personnel", args
+        if entity_type == "unit":
+            if __import__("re").search(r"\b(command history|history)\b", q):
+                if item.get("unit_name"):
+                    args["unit_name"] = item["unit_name"]
+                return "get_unit_command_history", args
+            if __import__("re").search(r"\b(villages?|mapping|coverage)\b", q):
+                if item.get("unit_name"):
+                    args["unit_name"] = item["unit_name"]
+                return "get_village_coverage", args
+            if __import__("re").search(r"\b(sho|sdpo|spdo|dpo|in charge|heads?)\b", q):
+                if item.get("unit_name"):
+                    args["unit_name"] = item["unit_name"]
+                return "get_unit_command_history", args
+            if item.get("unit_name"):
+                args["name"] = item["unit_name"]
+            return "search_unit", args
+        if entity_type == "district":
+            if item.get("district_name"):
+                args["district_name"] = item["district_name"]
+            if __import__("re").search(r"\b(units?|stations?)\b", q):
+                return "list_units_in_district", args
+            if __import__("re").search(r"\b(hierarchy|tree)\b", q):
+                return "get_unit_hierarchy", args
+            if __import__("re").search(r"\b(personnel|rank|distribution)\b", q):
+                return "get_personnel_distribution", args
+            if __import__("re").search(r"\b(details?|info|information|about|on)\b", q):
+                return "list_units_in_district", args
+        return tool_name, args
+
+    def _extract_error_signature(self, result: Dict[str, Any]) -> Tuple[Optional[str], str]:
+        error = result.get("error") if isinstance(result, dict) else None
+        if not isinstance(error, dict):
+            return None, ""
+        code = error.get("code")
+        message = str(error.get("message") or "")
+        if not isinstance(code, str):
+            code = None
+        return code, message
+
+    async def _recover_failed_result(
+        self,
+        *,
+        query: str,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        result: Dict[str, Any],
+        state: Dict[str, Any],
+        context: Optional[Any],
+    ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+        if not isinstance(result, dict) or result.get("success", False):
+            return tool_name, arguments, result
+        code, message = self._extract_error_signature(result)
+        args = dict(arguments or {})
+
+        # Reuse selected entity when the routed tool failed due to missing target args.
+        if (code and "MCP-INPUT-001" in code) or (code == "MISSING_PARAMETER"):
+            selected = state.get("selected_entity")
+            if isinstance(selected, dict):
+                if selected.get("entity_type") == "personnel" and self._query_mentions_person_detail(query):
+                    retry_args = dict(args)
+                    if selected.get("user_id"):
+                        retry_args["user_id"] = selected["user_id"]
+                    elif selected.get("name"):
+                        retry_args["name"] = selected["name"]
+                    retry_result = await self.tool_handler.execute("search_personnel", retry_args, context)
+                    if isinstance(retry_result, dict) and retry_result.get("success", False):
+                        return "search_personnel", retry_args, retry_result
+                if selected.get("entity_type") == "unit":
+                    retry_args = dict(args)
+                    unit_name = selected.get("unit_name")
+                    if isinstance(unit_name, str) and unit_name.strip():
+                        retry_args.setdefault("unit_name", unit_name.strip())
+                        retry_args.setdefault("name", unit_name.strip())
+                    if __import__("re").search(r"\b(villages?|mapping|coverage)\b", query, __import__("re").IGNORECASE):
+                        retry_result = await self.tool_handler.execute("get_village_coverage", retry_args, context)
+                        if isinstance(retry_result, dict) and retry_result.get("success", False):
+                            return "get_village_coverage", retry_args, retry_result
+
+        # Alias-normalize district/unit args on NOT_FOUND and retry once.
+        if code == "NOT_FOUND" or "not found" in message.lower():
+            retry_args = dict(args)
+            changed = False
+            for key in ("district_name", "unit_name", "name"):
+                value = retry_args.get(key)
+                if isinstance(value, str):
+                    normalized = normalize_common_query_typos(value).strip()
+                    if normalized and normalized != value:
+                        retry_args[key] = normalized
+                        changed = True
+            if changed:
+                retry_result = await self.tool_handler.execute(tool_name, retry_args, context)
+                if isinstance(retry_result, dict) and retry_result.get("success", False):
+                    return tool_name, retry_args, retry_result
+
+        # If a generic person search failed/empty for a place-like term, try district->unit fallback.
+        if tool_name == "search_personnel":
+            candidate_name = (args or {}).get("name")
+            if isinstance(candidate_name, str) and candidate_name.strip():
+                district_probe = await self.tool_handler.execute("list_districts", {"name": candidate_name}, context)
+                districts = district_probe.get("data", []) if isinstance(district_probe, dict) else []
+                if district_probe.get("success", False) and isinstance(districts, list) and districts:
+                    district_name = districts[0].get("district_name") or candidate_name
+                    retry_args = {"district_name": district_name}
+                    retry_result = await self.tool_handler.execute("list_units_in_district", retry_args, context)
+                    if isinstance(retry_result, dict) and retry_result.get("success", False):
+                        return "list_units_in_district", retry_args, retry_result
+
+        return tool_name, args, result
+
     async def process_query(
         self,
         query: str,
@@ -454,14 +872,111 @@ class IntelligentQueryHandler:
         # requiring a process restart of the singleton handler.
         self.use_llm = has_llm_api_key()
         session_key = session_id or "default"
+        original_query = query or ""
+        normalized_query = normalize_common_query_typos(original_query)
         history = self._get_history(session_key)
         context_messages = list(history)
         state = self._get_state(session_key)
+        effective_output_format = (
+            state.get("preferred_output_format")
+            if (output_format is None or str(output_format).lower() == "auto")
+            else output_format
+        )
 
         last_user_query = next((m.get("content") for m in reversed(context_messages) if m.get("role") == "user"), None)
         last_assistant_response = next((m.get("content") for m in reversed(context_messages) if m.get("role") == "assistant"), None)
 
-        page_delta = self._pagination_delta(query)
+        if self._is_output_preference_query(normalized_query):
+            preferred = self._extract_output_preference(normalized_query)
+            if preferred:
+                state["preferred_output_format"] = preferred
+                response_text = f"Okay. I'll prefer `{preferred}` format for future results in this chat unless you ask otherwise."
+                output_payload = build_output_payload(
+                    query=original_query,
+                    response_text=response_text,
+                    routed_to=None,
+                    arguments={},
+                    result={"preference": {"output_format": preferred}},
+                    requested_format="text",
+                    allow_download=False,
+                )
+                history.append({"role": "user", "content": original_query})
+                history.append({"role": "assistant", "content": response_text})
+                return {
+                    "success": True,
+                    "query": original_query,
+                    "understood_as": "set_output_preference",
+                    "response": response_text,
+                    "routed_to": None,
+                    "arguments": {"preferred_output_format": preferred},
+                    "confidence": 1.0,
+                    "data": {"preferred_output_format": preferred},
+                    "llm_enabled": self.use_llm,
+                    "route_source": "state_preference",
+                    "session_id": session_key,
+                    "history_size": len(history),
+                    "output": output_payload,
+                }
+
+        chain_parts = self._split_complex_query_chain(normalized_query)
+        if chain_parts:
+            step_results: List[Dict[str, Any]] = []
+            all_success = True
+            for idx, part in enumerate(chain_parts):
+                is_last = idx == len(chain_parts) - 1
+                step = await self.process_query(
+                    part,
+                    context=context,
+                    session_id=session_key,
+                    output_format=effective_output_format if is_last else None,
+                    allow_download=allow_download if is_last else False,
+                )
+                step_results.append({
+                    "step": idx + 1,
+                    "query": part,
+                    "success": bool(step.get("success")),
+                    "routed_to": step.get("routed_to"),
+                    "response": step.get("response"),
+                    "arguments": step.get("arguments"),
+                    "data": step.get("data"),
+                })
+                if not step.get("success"):
+                    all_success = False
+                    break
+
+            combined_lines = []
+            for step in step_results:
+                combined_lines.append(
+                    f"Step {step['step']} ({step['query']}):\n{step.get('response') or 'No response'}"
+                )
+            response_text = "\n\n".join(combined_lines) if combined_lines else "No steps were executed."
+            last_step = step_results[-1] if step_results else {}
+            output_payload = build_output_payload(
+                query=original_query,
+                response_text=response_text,
+                routed_to=last_step.get("routed_to"),
+                arguments=last_step.get("arguments") or {},
+                result={"success": all_success, "data": {"steps": step_results}},
+                requested_format=effective_output_format,
+                allow_download=allow_download,
+            )
+            return {
+                "success": all_success,
+                "query": original_query,
+                "understood_as": "complex_query_chain",
+                "response": response_text,
+                "routed_to": last_step.get("routed_to"),
+                "arguments": last_step.get("arguments") or {},
+                "confidence": 0.95,
+                "data": {"steps": step_results},
+                "llm_enabled": self.use_llm,
+                "route_source": "chain_executor",
+                "session_id": session_key,
+                "history_size": len(history),
+                "output": output_payload,
+            }
+
+        page_delta = self._pagination_delta(normalized_query)
         if page_delta != 0:
             last_tool = state.get("last_tool")
             last_args = dict(state.get("last_arguments") or {})
@@ -476,7 +991,7 @@ class IntelligentQueryHandler:
                     routed_to=None,
                     arguments={},
                     result={},
-                    requested_format=output_format,
+                    requested_format=effective_output_format,
                     allow_download=allow_download,
                 )
                 history.append({"role": "user", "content": query})
@@ -508,7 +1023,7 @@ class IntelligentQueryHandler:
                     routed_to=last_tool,
                     arguments=last_args,
                     result=last_result,
-                    requested_format=output_format,
+                    requested_format=effective_output_format,
                     allow_download=allow_download,
                 )
                 history.append({"role": "user", "content": query})
@@ -532,7 +1047,7 @@ class IntelligentQueryHandler:
             page_args["page"] = target_page
             result = await self.tool_handler.execute(last_tool, page_args, context)
 
-            if is_followup_district_query(query):
+            if is_followup_district_query(normalized_query):
                 data_payload = result.get("data", []) if isinstance(result, dict) else []
                 district_response = format_followup_district_response(data_payload)
                 response_text = district_response or fallback_format_response(query, last_tool, page_args, result)
@@ -554,7 +1069,7 @@ class IntelligentQueryHandler:
                 routed_to=last_tool,
                 arguments=page_args,
                 result=result,
-                requested_format=output_format,
+                requested_format=effective_output_format,
                 allow_download=allow_download,
             )
             return {
@@ -572,7 +1087,7 @@ class IntelligentQueryHandler:
                 "output": output_payload,
             }
 
-        if self._is_capability_help_query(query):
+        if self._is_capability_help_query(normalized_query):
             response_text = _capability_help_response_text()
             output_payload = build_output_payload(
                 query=query,
@@ -580,7 +1095,7 @@ class IntelligentQueryHandler:
                 routed_to=None,
                 arguments={},
                 result={},
-                requested_format=output_format,
+                requested_format=effective_output_format,
                 allow_download=allow_download,
             )
             history.append({"role": "user", "content": query})
@@ -602,7 +1117,7 @@ class IntelligentQueryHandler:
 
         # Follow-up person details like "give me all their details" should resolve
         # to the last referenced person from session state.
-        if self._is_followup_person_detail_query(query):
+        if self._is_followup_person_detail_query(normalized_query):
             person_args: Dict[str, Any] = {}
             if isinstance(state.get("last_person_user_id"), str) and state.get("last_person_user_id"):
                 person_args["user_id"] = state["last_person_user_id"]
@@ -632,7 +1147,7 @@ class IntelligentQueryHandler:
                     routed_to=tool_name,
                     arguments=arguments,
                     result=result,
-                    requested_format=output_format,
+                    requested_format=effective_output_format,
                     allow_download=allow_download,
                 )
                 return {
@@ -652,7 +1167,7 @@ class IntelligentQueryHandler:
 
         # Attribute-only follow-ups like "What is the mobile number?" should
         # reuse the last resolved person in this chat without requiring "their".
-        if self._is_attribute_only_person_followup_query(query, state):
+        if self._is_attribute_only_person_followup_query(normalized_query, state):
             person_args: Dict[str, Any] = {}
             if isinstance(state.get("last_person_user_id"), str) and state.get("last_person_user_id"):
                 person_args["user_id"] = state["last_person_user_id"]
@@ -682,7 +1197,7 @@ class IntelligentQueryHandler:
                     routed_to=tool_name,
                     arguments=arguments,
                     result=result,
-                    requested_format=output_format,
+                    requested_format=effective_output_format,
                     allow_download=allow_download,
                 )
                 return {
@@ -702,8 +1217,8 @@ class IntelligentQueryHandler:
 
         # Follow-up unit details like "details on IT core (Special Wing)"
         # should resolve against units mentioned in previous hierarchy/list outputs.
-        if self._is_unit_detail_query(query):
-            resolved_unit = self._resolve_followup_unit_name(query, state)
+        if self._is_unit_detail_query(normalized_query):
+            resolved_unit = self._resolve_followup_unit_name(normalized_query, state)
             if resolved_unit:
                 tool_name = "search_unit"
                 arguments = {"name": resolved_unit}
@@ -727,7 +1242,7 @@ class IntelligentQueryHandler:
                     routed_to=tool_name,
                     arguments=arguments,
                     result=result,
-                    requested_format=output_format,
+                    requested_format=effective_output_format,
                     allow_download=allow_download,
                 )
                 return {
@@ -747,8 +1262,8 @@ class IntelligentQueryHandler:
 
         # Follow-up unit personnel like "list the personnel there"
         # should use the previously referenced unit context.
-        if self._is_followup_unit_personnel_query(query):
-            resolved_unit = self._resolve_followup_unit_name(query, state)
+        if self._is_followup_unit_personnel_query(normalized_query):
+            resolved_unit = self._resolve_followup_unit_name(normalized_query, state)
             if not resolved_unit:
                 # Fallback to last explicit unit argument when available.
                 last_args = state.get("last_arguments") or {}
@@ -783,7 +1298,7 @@ class IntelligentQueryHandler:
                     routed_to=tool_name,
                     arguments=arguments,
                     result=result,
-                    requested_format=output_format,
+                    requested_format=effective_output_format,
                     allow_download=allow_download,
                 )
                 return {
@@ -801,23 +1316,24 @@ class IntelligentQueryHandler:
                     "output": output_payload,
                 }
 
-        clarification_needed = needs_clarification(query)
+        clarification_needed = needs_clarification(normalized_query)
 
         if self.use_llm:
-            tool_name, arguments, understood_query, confidence, route_source = await llm_route_query(query, context_messages)
+            tool_name, arguments, understood_query, confidence, route_source = await llm_route_query(normalized_query, context_messages)
         else:
-            tool_name, arguments = fallback_route_query(query)[:2]
-            understood_query, confidence = query, 0.5
+            tool_name, arguments = fallback_route_query(normalized_query)[:2]
+            understood_query, confidence = normalized_query, 0.5
             route_source = "heuristic"
 
-        arguments = self._inject_state_hints(session_key, query, arguments)
+        arguments = self._inject_state_hints(session_key, normalized_query, arguments)
         tool_name, arguments = repair_route(
-            query=query,
+            query=normalized_query,
             tool_name=tool_name,
             arguments=arguments,
             last_user_query=last_user_query,
             last_assistant_response=last_assistant_response,
         )
+        tool_name, arguments = self._apply_ordinal_route_overrides(normalized_query, tool_name, arguments, state)
 
         # Let LLM try first on ambiguous queries. If LLM is unavailable/failed and
         # we only have a heuristic fallback, preserve the clarification behavior.
@@ -833,7 +1349,7 @@ class IntelligentQueryHandler:
                 routed_to=None,
                 arguments={},
                 result={},
-                requested_format=output_format,
+                requested_format=effective_output_format,
                 allow_download=allow_download,
             )
             history.append({"role": "user", "content": query})
@@ -864,7 +1380,7 @@ class IntelligentQueryHandler:
                 routed_to=None,
                 arguments={},
                 result={},
-                requested_format=output_format,
+                requested_format=effective_output_format,
                 allow_download=allow_download,
             )
             return {
@@ -887,7 +1403,7 @@ class IntelligentQueryHandler:
 
         if not result.get("success", False):
             retry_tool, retry_args = repair_route(
-                query=query,
+                query=normalized_query,
                 tool_name=tool_name,
                 arguments=arguments,
                 last_user_query=last_user_query,
@@ -897,6 +1413,15 @@ class IntelligentQueryHandler:
                 retry_result = await self.tool_handler.execute(retry_tool, retry_args, context)
                 if retry_result.get("success", False):
                     tool_name, arguments, result = retry_tool, retry_args, retry_result
+        if not result.get("success", False):
+            tool_name, arguments, result = await self._recover_failed_result(
+                query=normalized_query,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=result,
+                state=state,
+                context=context,
+            )
 
         if (
             tool_name == "search_personnel"
@@ -913,7 +1438,7 @@ class IntelligentQueryHandler:
                     arguments = {"district_name": districts[0].get("district_name", candidate_name)}
                     result = await self.tool_handler.execute(tool_name, arguments, context)
 
-        if is_followup_district_query(query):
+        if is_followup_district_query(normalized_query):
             data_payload = result.get("data", []) if isinstance(result, dict) else []
             district_response = format_followup_district_response(data_payload)
             response_text = district_response or fallback_format_response(query, tool_name, arguments, result)
@@ -935,7 +1460,7 @@ class IntelligentQueryHandler:
             routed_to=tool_name,
             arguments=arguments,
             result=result,
-            requested_format=output_format,
+            requested_format=effective_output_format,
             allow_download=allow_download,
         )
         return {

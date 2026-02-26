@@ -476,6 +476,7 @@
                 tone: messageRecord.tone,
             }
         );
+        element.dataset.messageTimestamp = String(messageRecord.timestamp || '');
         messagesContainer.appendChild(element);
         return element;
     }
@@ -539,6 +540,33 @@
         touchActiveChatMeta();
         renderChatThreadList();
         updateActiveChatLabel();
+    }
+
+    function updateMessageRecordForElement(messageDiv, updates = {}) {
+        const activeChat = getActiveChat();
+        if (!activeChat || !Array.isArray(activeChat.messages)) return;
+        const targetTimestamp = String(messageDiv?.dataset?.messageTimestamp || '');
+        const targetRole = messageDiv?.classList?.contains('user') ? 'user' : 'assistant';
+        if (!targetTimestamp) return;
+
+        for (let i = activeChat.messages.length - 1; i >= 0; i--) {
+            const record = activeChat.messages[i];
+            if (!record || record.role !== targetRole) continue;
+            if (String(record.timestamp || '') !== targetTimestamp) continue;
+            if (Object.prototype.hasOwnProperty.call(updates, 'content')) {
+                record.content = String(updates.content ?? '');
+            }
+            if (Object.prototype.hasOwnProperty.call(updates, 'rawHtml')) {
+                record.rawHtml = Boolean(updates.rawHtml);
+            }
+            if (Object.prototype.hasOwnProperty.call(updates, 'tone')) {
+                record.tone = updates.tone === 'error' ? 'error' : 'normal';
+            }
+            touchActiveChatMeta();
+            renderChatThreadList();
+            updateActiveChatLabel();
+            return;
+        }
     }
 
     async function persistMessageRecordToServer(messageRecord, chatIdOverride = null) {
@@ -850,9 +878,116 @@
         sendMessage();
     }
 
-    function sendPaginationCommand(command) {
-        document.getElementById('chat-input').value = command;
-        sendMessage();
+    function extractAssistantResponseText(data) {
+        if (data?.output && data.output.rendered) {
+            if (data.output.format === 'json') {
+                return `\`\`\`json\n${data.output.rendered}\n\`\`\``;
+            }
+            if (data.output.format === 'tree') {
+                return `\`\`\`text\n${data.output.rendered}\n\`\`\``;
+            }
+            return data.output.rendered;
+        }
+        if (data?.response) return data.response;
+        if (data?.data && typeof data.data === 'object') {
+            return JSON.stringify(data.data, null, 2);
+        }
+        return JSON.stringify(data, null, 2);
+    }
+
+    function renderAssistantMessageInPlace(messageDiv, responseText, apiResult) {
+        if (!messageDiv) return;
+        const contentDiv = messageDiv.querySelector('.message-content');
+        if (!contentDiv) return;
+
+        const timeText = messageDiv.dataset.timeLabel || formatTime(new Date());
+        messageDiv.dataset.timeLabel = timeText;
+
+        contentDiv.style.background = '';
+        contentDiv.style.borderColor = '';
+        contentDiv.style.color = '';
+        contentDiv.innerHTML = OutputLayer.formatResponse(responseText);
+
+        const hasServerPager = appendPaginationControls(apiResult, messageDiv);
+        if (!hasServerPager) {
+            attachResponseBubblePager(responseText, messageDiv);
+        }
+
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        timeDiv.textContent = timeText;
+        contentDiv.appendChild(timeDiv);
+
+        updateMessageRecordForElement(messageDiv, {
+            content: responseText,
+            rawHtml: false,
+            tone: 'normal',
+        });
+    }
+
+    async function sendPaginationCommand(command, sourceButton = null) {
+        const sourceElement = sourceButton && typeof sourceButton.closest === 'function' ? sourceButton : null;
+        const messageDiv = sourceElement ? sourceElement.closest('.message.bot') : null;
+
+        if (!messageDiv) {
+            document.getElementById('chat-input').value = command;
+            sendMessage();
+            return;
+        }
+
+        if (!isAuthenticated()) {
+            showLoginPortal();
+            setConnectionStatus(false, 'Locked');
+            return;
+        }
+
+        await ensureChatThreadsStateReady();
+
+        const pagerButtons = Array.from(messageDiv.querySelectorAll('.server-pager-controls .pager-btn'));
+        if (pagerButtons.some((btn) => btn.dataset.loading === '1')) return;
+        pagerButtons.forEach((btn) => {
+            btn.dataset.loading = '1';
+            btn.dataset.wasDisabled = btn.disabled ? '1' : '0';
+            btn.disabled = true;
+        });
+
+        setConnectionStatus(true, 'Loading page...');
+        try {
+            const data = await chatApiFetch('/api/v1/ask', {
+                method: 'POST',
+                body: JSON.stringify({
+                    query: command,
+                    output_format: 'auto',
+                    allow_download: null,
+                    // Preserve pagination/session context without persisting a
+                    // new "next page" / "previous page" chat message.
+                    session_id: getActiveChatSessionId(),
+                }),
+            });
+
+            lastAssistantResult = data;
+            setActiveChatLastAssistantResult(data);
+            const responseText = extractAssistantResponseText(data);
+            renderAssistantMessageInPlace(messageDiv, responseText, data);
+            maybeWarnBackendContextDesync(data);
+            if (data.output && data.output.download && data.output.download.content) {
+                OutputLayer.triggerDownload(data.output);
+            }
+            setConnectionStatus(true, 'Connected');
+            scrollToBottom();
+        } catch (error) {
+            console.warn('Pagination request failed', error);
+            setConnectionStatus(false, 'Disconnected');
+        } finally {
+            messageDiv.querySelectorAll('.server-pager-controls .pager-btn').forEach((btn) => {
+                if (btn.dataset.loading === '1') {
+                    const wasDisabled = btn.dataset.wasDisabled === '1';
+                    delete btn.dataset.loading;
+                    delete btn.dataset.wasDisabled;
+                    btn.disabled = wasDisabled;
+                }
+            });
+        }
     }
 
     function appendPaginationControls(apiResult, messageDiv) {
@@ -868,9 +1003,9 @@
         const disableNext = page >= totalPages ? 'disabled' : '';
         const controlsHtml = `
             <div class="pager-wrap">
-                <button class="pager-btn" ${disablePrev} onclick="sendPaginationCommand('previous page')">&larr; Back</button>
+                <button class="pager-btn" ${disablePrev} onclick="sendPaginationCommand('previous page', this)">&larr; Back</button>
                 <span class="pager-info">Page ${page} of ${totalPages} &bull; Total ${total}</span>
-                <button class="pager-btn" ${disableNext} onclick="sendPaginationCommand('next page')">Next &rarr;</button>
+                <button class="pager-btn" ${disableNext} onclick="sendPaginationCommand('next page', this)">Next &rarr;</button>
             </div>
         `;
         insertControlsBeforeTime(messageDiv, controlsHtml, 'server-pager-controls');

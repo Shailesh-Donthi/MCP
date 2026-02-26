@@ -13,6 +13,7 @@ from mcp.schemas.context_schema import UserContext
 from mcp.query_builder.aggregation_builder import AggregationBuilder, AggregationHelpers
 from mcp.utils.formatters import format_personnel_list, stringify_object_ids
 from mcp.constants import Collections
+from mcp.router.extractors import normalize_common_entity_aliases
 from mcp.query_builder.builder import SafeQueryBuilder
 
 
@@ -193,7 +194,7 @@ class QueryPersonnelByUnitTool(BaseTool):
 
     async def _resolve_unit_name(self, unit_name: str) -> Optional[str]:
         """Resolve unit name with exact + tolerant matching (aligned with command-history tool)."""
-        raw = (unit_name or "").strip()
+        raw = normalize_common_entity_aliases((unit_name or "").strip())
         if not raw:
             return None
         raw = re.sub(r"\bSPDO\b", "SDPO", raw, flags=re.IGNORECASE)

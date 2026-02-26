@@ -13,6 +13,7 @@ from mcp.schemas.context_schema import UserContext
 from mcp.query_builder.aggregation_builder import AggregationBuilder, AggregationHelpers
 from mcp.constants import Collections
 from mcp.query_builder.builder import SafeQueryBuilder
+from mcp.router.extractors import normalize_common_entity_aliases, fuzzy_best_match
 
 
 def _clean_district_name(district_name: str) -> str:
@@ -23,6 +24,7 @@ def _clean_district_name(district_name: str) -> str:
 async def _find_district_by_name(db: Any, district_name: str) -> Optional[Dict[str, Any]]:
     """Find district by exact name, then partial match."""
     clean_name = _clean_district_name(district_name)
+    clean_name = _clean_district_name(normalize_common_entity_aliases(clean_name))
     district = await db[Collections.DISTRICT].find_one(
         {"name": {"$regex": f"^{clean_name}$", "$options": "i"}, "isDelete": False}
     )
@@ -30,8 +32,18 @@ async def _find_district_by_name(db: Any, district_name: str) -> Optional[Dict[s
         return district
 
     escaped_name = SafeQueryBuilder.escape_regex(clean_name)
-    return await db[Collections.DISTRICT].find_one(
+    district = await db[Collections.DISTRICT].find_one(
         {"name": {"$regex": escaped_name, "$options": "i"}, "isDelete": False}
+    )
+    if district:
+        return district
+
+    district_names = await db[Collections.DISTRICT].distinct("name", {"isDelete": False})
+    best = fuzzy_best_match(clean_name, district_names, cutoff=0.76)
+    if not best:
+        return None
+    return await db[Collections.DISTRICT].find_one(
+        {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False}
     )
 
 
@@ -183,11 +195,33 @@ class GetUnitHierarchyTool(BaseTool):
 
     async def _resolve_unit_name(self, unit_name: str) -> Optional[str]:
         """Resolve unit name to ID"""
+        probe = normalize_common_entity_aliases(unit_name or "")
         unit = await self.db[Collections.UNIT].find_one(
             {
-                "name": {"$regex": f"^{unit_name}$", "$options": "i"},
+                "name": {"$regex": f"^{re.escape(probe)}$", "$options": "i"},
                 "isDelete": False,
             }
+        )
+        if unit:
+            return str(unit["_id"])
+
+        unit = await self.db[Collections.UNIT].find_one(
+            {
+                "name": {"$regex": SafeQueryBuilder.escape_regex(probe), "$options": "i"},
+                "isDelete": False,
+            },
+            {"_id": 1},
+        )
+        if unit:
+            return str(unit["_id"])
+
+        unit_names = await self.db[Collections.UNIT].distinct("name", {"isDelete": False})
+        best = fuzzy_best_match(probe, unit_names, cutoff=0.78)
+        if not best:
+            return None
+        unit = await self.db[Collections.UNIT].find_one(
+            {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False},
+            {"_id": 1},
         )
         return str(unit["_id"]) if unit else None
 
