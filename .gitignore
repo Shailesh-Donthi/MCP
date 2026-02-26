@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 logs/
+server/logs/
 *.log
 .pytest_cache/
 .mypy_cache/

@@ -7,27 +7,33 @@ It supports:
 - Direct tool execution via REST.
 - Keyword-routed natural language queries.
 - LLM-assisted intelligent routing and response formatting.
-- A browser chat UI (`chatbot.html`) that calls `/api/v1/ask`.
+- A browser chat UI (`client/chatbot.html`) that calls `/api/v1/ask`.
+
+Project layout note:
+- `client/`: frontend UI assets (`chatbot.html`, `chatbot_app.js`, `chatbot_output.js`)
+- `server/`: backend package and launcher (`server/mcp`, `server/mcp_server.py`, `server/requirements.txt`)
+- Root wrappers remain for compatibility (`mcp_server.py`, `requirements.txt`, `mcp` shim package)
 
 ---
 
 ## High-Level Architecture
-- `chatbot.html`: Frontend chat interface, quick actions, and API calls.
-- `mcp/server_http.py`: Main HTTP server, endpoints, auth/context extraction, caching, metrics, fallback routing.
-- `mcp/llm_router.py`: Orchestrator for intelligent query processing, session-state memory, tool execution, and response assembly.
-- `mcp/router/*`: Router internals split into modular chunks (`prompts.py`, `llm_client.py`, `extractors.py`, `routing_rules.py`).
-- `mcp/handlers/tool_handler.py`: Tool registry, validation, execution, and standardized error handling.
-- `mcp/tools/*.py`: Domain tools for personnel, units, vacancies, transfers, village mapping, and search.
-- `mcp/query_builder/filters.py`: Scope filtering by unit/district/state access.
-- `mcp/core/database.py`: MongoDB connection lifecycle.
-- `mcp/core/security.py`: JWT decode helper.
-- `mcp/schemas/context_schema.py`: User access context model.
+- `client/chatbot.html`: Frontend chat interface, quick actions, and API calls.
+- `server/mcp/server_http.py`: Main HTTP server, endpoints, auth/context extraction, caching, metrics, fallback routing.
+- `server/mcp/llm_router.py`: Orchestrator for intelligent query processing, session-state memory, tool execution, and response assembly.
+- `server/mcp/router/*`: Router internals split into modular chunks (`prompts.py`, `llm_client.py`, `extractors.py`, `routing_rules.py`).
+- `server/mcp/handlers/tool_handler.py`: Tool registry, validation, execution, and standardized error handling.
+- `server/mcp/tools/*.py`: Domain tools for personnel, units, vacancies, transfers, village mapping, and search.
+- `server/mcp/query_builder/filters.py`: Scope filtering by unit/district/state access.
+- `server/mcp/core/database.py`: MongoDB connection lifecycle.
+- `server/mcp/core/security.py`: JWT decode helper.
+- `server/mcp/schemas/context_schema.py`: User access context model.
 
 ---
 
 ## Entry Points
-- `mcp_server.py`: Local launcher that calls `mcp.server_http.main()`.
-- `mcp/server_http.py:main()`: Starts Uvicorn on `MCP_HOST:MCP_PORT`.
+- `mcp_server.py`: Root compatibility launcher (delegates to `server/` backend code).
+- `server/mcp_server.py`: Backend launcher that calls `mcp.server_http.main()`.
+- `server/mcp/server_http.py:main()`: Starts Uvicorn on `MCP_HOST:MCP_PORT`.
 
 Run locally:
 ```bash

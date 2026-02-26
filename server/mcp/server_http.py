@@ -37,7 +37,7 @@ from mcp.core.config import settings
 from mcp.core.database import connect_to_mongodb, close_mongodb_connection, get_database
 from mcp.core.error_catalog import build_error_payload, normalize_error_code
 from mcp.core.logging_config import configure_logging, log_structured
-from mcp.core.security import decode_access_token
+from mcp.core.security import create_access_token, decode_access_token
 from mcp.config import mcp_settings
 from mcp.schemas.context_schema import UserContext
 from mcp.handlers.tool_handler import get_tool_handler
@@ -106,6 +106,19 @@ class ChatCreateRequest(BaseModel):
 
 class ChatThreadRequest(BaseModel):
     active_chat_id: Optional[str] = Field(None, description="Client active chat id")
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., description="Username")
+    pin: str = Field(..., description="PIN/password")
+
+
+class LoginResponse(BaseModel):
+    success: bool
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: Dict[str, Any]
 
 
 # Lightweight in-memory response history for /api/v1/query follow-ups.
@@ -493,6 +506,69 @@ async def request_context_middleware(request: Request, call_next):
 
 
 # =============================================================================
+# Authentication Endpoints (Temporary Demo Auth)
+# =============================================================================
+
+@app.post("/api/v1/auth/login", response_model=LoginResponse, tags=["Auth"])
+async def login_demo_user(
+    request: LoginRequest,
+    http_request: Request,
+):
+    """
+    Temporary backend login for local/demo usage until real auth integration exists.
+    Disabled by default; enable explicitly with MCP_ENABLE_DEMO_LOGIN=true.
+    """
+    if not getattr(settings, "MCP_ENABLE_DEMO_LOGIN", False):
+        raise HTTPException(
+            status_code=404,
+            detail=_build_error_detail(
+                "Endpoint not available",
+                code="MCP-ENDPOINT-404",
+                request_id=getattr(http_request.state, "request_id", None),
+            ),
+        )
+
+    username = str(request.username or "").strip()
+    pin = str(request.pin or "").strip()
+    expected_username = str(getattr(settings, "MCP_DEMO_USERNAME", "9999") or "9999").strip()
+    expected_pin = str(getattr(settings, "MCP_DEMO_PIN", "9999") or "9999").strip()
+
+    if username != expected_username or pin != expected_pin:
+        raise HTTPException(
+            status_code=401,
+            detail=_build_error_detail(
+                "Invalid username or PIN",
+                code="MCP-AUTH-LOGIN-001",
+                request_id=getattr(http_request.state, "request_id", None),
+            ),
+        )
+
+    ttl_minutes = int(getattr(settings, "MCP_DEMO_LOGIN_TOKEN_TTL_MINUTES", 480) or 480)
+    token_payload = {
+        "sub": f"demo:{username}",
+        "id": f"demo-{username}",
+        "username": username,
+        "roleId": "demo-state-admin",
+        "roleName": "state admin",
+        "auth_source": "demo",
+        "units": [],
+    }
+    access_token = create_access_token(token_payload, expires_in_minutes=ttl_minutes)
+    return LoginResponse(
+        success=True,
+        access_token=access_token,
+        expires_in=max(60, ttl_minutes * 60),
+        user={
+            "id": token_payload["id"],
+            "username": username,
+            "roleName": token_payload["roleName"],
+            "scope_level": "state",
+            "auth_source": "demo",
+        },
+    )
+
+
+# =============================================================================
 # Dependencies
 # =============================================================================
 
@@ -502,11 +578,23 @@ async def get_current_user_context(
 ) -> UserContext:
     """
     Extract user context from JWT token.
-    Returns state-level access if no token (for internal use).
+    Anonymous access is disabled by default and can be enabled explicitly
+    for local/dev environments via configuration.
     """
     if not authorization:
-        # No auth - internal access with full scope
-        return UserContext(scope_level="state")
+        if getattr(settings, "MCP_ALLOW_ANONYMOUS_ACCESS", False):
+            anon_scope = str(getattr(settings, "MCP_ANON_SCOPE_LEVEL", "state") or "state").lower()
+            if anon_scope not in {"unit", "district", "state"}:
+                anon_scope = "state"
+            return UserContext(scope_level=anon_scope)
+        raise HTTPException(
+            status_code=401,
+            detail=_build_error_detail(
+                "Missing Authorization header",
+                code="MCP-AUTH-000",
+                request_id=getattr(request.state, "request_id", None),
+            ),
+        )
 
     try:
         # Extract token from "Bearer <token>"
@@ -748,11 +836,35 @@ async def readiness_check():
 
 
 @app.get("/api/v1/db-test", tags=["Health"])
-async def test_database_permissions():
+async def test_database_permissions(
+    http_request: Request,
+    context: UserContext = Depends(get_current_user_context),
+    _: None = Depends(check_rate_limit),
+):
     """
     Test database permissions on all collections used by MCP tools.
     Helps diagnose MongoDB Atlas permission issues.
     """
+    if not getattr(settings, "MCP_ENABLE_DB_TEST_ENDPOINT", False):
+        raise HTTPException(
+            status_code=404,
+            detail=_build_error_detail(
+                "Endpoint not available",
+                code="MCP-ENDPOINT-404",
+                request_id=getattr(http_request.state, "request_id", None),
+            ),
+        )
+
+    if getattr(context, "scope_level", None) != "state":
+        raise HTTPException(
+            status_code=403,
+            detail=_build_error_detail(
+                "Insufficient scope for database diagnostics",
+                code="MCP-AUTH-004",
+                request_id=getattr(http_request.state, "request_id", None),
+            ),
+        )
+
     from mcp.constants import Collections
     import re
 

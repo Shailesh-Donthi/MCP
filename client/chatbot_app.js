@@ -6,6 +6,7 @@
     const DEMO_USERNAME = '9999';
     const DEMO_PIN = '9999';
     const AUTH_STORAGE_KEY = 'mcpDemoAuth';
+    const AUTH_BEARER_STORAGE_KEY = 'mcpAuthBearerToken';
     const AUTH_LOCKOUT_KEY = 'mcpDemoAuthLockoutUntil';
     const MAX_LOGIN_ATTEMPTS = 5;
     const LOCKOUT_MS = 60 * 1000;
@@ -17,6 +18,7 @@
     let lockoutIntervalRef = null;
     const CHAT_CLIENT_ID_STORAGE_KEY = 'mcpChatClientId';
     let chatThreadsState = null;
+    let chatThreadsReadyPromise = null;
 
     function generateId(prefix = 'id') {
         if (window.crypto && window.crypto.randomUUID) {
@@ -41,12 +43,38 @@
         }
     }
 
-    async function chatApiFetch(path, options = {}) {
+    function getStoredBearerToken() {
+        const candidates = [];
+        try { candidates.push(localStorage.getItem(AUTH_BEARER_STORAGE_KEY)); } catch (_e) {}
+        try { candidates.push(sessionStorage.getItem(AUTH_BEARER_STORAGE_KEY)); } catch (_e) {}
+        try { candidates.push(window.MCP_AUTH_TOKEN); } catch (_e) {}
+        try { candidates.push(window.__MCP_AUTH_TOKEN__); } catch (_e) {}
+
+        for (const rawValue of candidates) {
+            const value = typeof rawValue === 'string' ? rawValue.trim() : '';
+            if (!value) continue;
+            return value.toLowerCase().startsWith('bearer ') ? value : `Bearer ${value}`;
+        }
+        return null;
+    }
+
+    function buildApiHeaders(extraHeaders = {}) {
         const headers = {
             'Content-Type': 'application/json',
             'X-Chat-Client-ID': getOrCreateChatClientId(),
-            ...(options.headers || {}),
         };
+        const bearerToken = getStoredBearerToken();
+        if (bearerToken) {
+            headers.Authorization = bearerToken;
+        }
+        return {
+            ...headers,
+            ...extraHeaders,
+        };
+    }
+
+    async function chatApiFetch(path, options = {}) {
+        const headers = buildApiHeaders(options.headers || {});
         const response = await fetch(`${config.apiUrl}${path}`, {
             ...options,
             headers,
@@ -214,10 +242,26 @@
         }
     }
 
-    function ensureChatThreadsState() {
-        if (!chatThreadsState) {
-            loadChatThreadsState();
+    async function ensureChatThreadsStateReady() {
+        if (chatThreadsState?.chats?.length) {
+            return chatThreadsState;
         }
+        if (!chatThreadsReadyPromise) {
+            chatThreadsReadyPromise = (async () => {
+                await loadChatThreadsState();
+                if (!chatThreadsState?.chats?.length) {
+                    chatThreadsState = buildDefaultChatThreadsState();
+                }
+                return chatThreadsState;
+            })().finally(() => {
+                chatThreadsReadyPromise = null;
+            });
+        }
+        return await chatThreadsReadyPromise;
+    }
+
+    function ensureChatThreadsState() {
+        // Async loading is explicit via ensureChatThreadsStateReady().
         if (!chatThreadsState?.chats?.length) {
             chatThreadsState = buildDefaultChatThreadsState();
             saveChatThreadsState();
@@ -256,7 +300,7 @@
     }
 
     async function createNewChat() {
-        ensureChatThreadsState();
+        await ensureChatThreadsStateReady();
         try {
             const created = await chatApiFetch('/api/v1/chats', {
                 method: 'POST',
@@ -277,7 +321,7 @@
     }
 
     async function deleteChat(chatId) {
-        const state = ensureChatThreadsState();
+        const state = await ensureChatThreadsStateReady();
         try {
             const payload = await chatApiFetch(`/api/v1/chats/${encodeURIComponent(chatId)}`, {
                 method: 'DELETE',
@@ -318,6 +362,7 @@
     }
 
     async function clearAllChats() {
+        await ensureChatThreadsStateReady();
         if (!window.confirm('Clear all chat threads from the server-side session? This cannot be undone.')) {
             return;
         }
@@ -498,6 +543,9 @@
 
     async function persistMessageRecordToServer(messageRecord, chatIdOverride = null) {
         try {
+            if (!chatThreadsState?.chats?.length) {
+                await ensureChatThreadsStateReady();
+            }
             const activeChat = chatIdOverride
                 ? (ensureChatThreadsState().chats.find((chat) => chat.id === chatIdOverride) || null)
                 : getActiveChat();
@@ -569,8 +617,7 @@
     }
 
     async function initializeChatThreadsUi() {
-        await loadChatThreadsState();
-        ensureChatThreadsState();
+        await ensureChatThreadsStateReady();
         const newChatBtn = document.getElementById('newChatBtn');
         if (newChatBtn && !newChatBtn.dataset.bound) {
             newChatBtn.addEventListener('click', () => { void startNewChat(); });
@@ -585,7 +632,11 @@
     }
 
     function isAuthenticated() {
-        return localStorage.getItem(AUTH_STORAGE_KEY) === '1';
+        try {
+            return localStorage.getItem(AUTH_STORAGE_KEY) === '1' && Boolean(getStoredBearerToken());
+        } catch (_error) {
+            return Boolean(getStoredBearerToken());
+        }
     }
 
     function getLockoutUntil() {
@@ -658,6 +709,8 @@
 
     function clearAuthState() {
         localStorage.removeItem(AUTH_STORAGE_KEY);
+        localStorage.removeItem(AUTH_BEARER_STORAGE_KEY);
+        try { sessionStorage.removeItem(AUTH_BEARER_STORAGE_KEY); } catch (_e) {}
         setLockoutUntil(0);
         loginFailedAttempts = 0;
         stopLockoutTicker();
@@ -687,7 +740,7 @@
         }
     }
 
-    function handleLoginSubmit(event) {
+    async function handleLoginSubmit(event) {
         event.preventDefault();
 
         const usernameInput = document.getElementById('loginUsername');
@@ -707,7 +760,19 @@
             return;
         }
 
-        if (username === DEMO_USERNAME && pin === DEMO_PIN) {
+        loginBtn.disabled = true;
+        showLoginFeedback('Signing in...', 'warning');
+
+        try {
+            const payload = await chatApiFetch('/api/v1/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ username, pin }),
+            });
+            const accessToken = typeof payload?.access_token === 'string' ? payload.access_token.trim() : '';
+            if (!accessToken) {
+                throw new Error('Login response did not include an access token.');
+            }
+            localStorage.setItem(AUTH_BEARER_STORAGE_KEY, accessToken);
             localStorage.setItem(AUTH_STORAGE_KEY, '1');
             setLockoutUntil(0);
             loginFailedAttempts = 0;
@@ -719,21 +784,34 @@
             const chatInput = document.getElementById('chat-input');
             if (chatInput) chatInput.focus();
             return;
-        }
+        } catch (error) {
+            const status = Number(error?.status || 0);
+            if (status === 401) {
+                loginFailedAttempts += 1;
+                const remainingAttempts = Math.max(0, MAX_LOGIN_ATTEMPTS - loginFailedAttempts);
+                pinInput.value = '';
+                pinInput.focus();
 
-        loginFailedAttempts += 1;
-        const remainingAttempts = Math.max(0, MAX_LOGIN_ATTEMPTS - loginFailedAttempts);
-        pinInput.value = '';
-        pinInput.focus();
+                if (remainingAttempts <= 0) {
+                    setLockoutUntil(Date.now() + LOCKOUT_MS);
+                    loginFailedAttempts = 0;
+                    startLockoutTicker();
+                    return;
+                }
 
-        if (remainingAttempts <= 0) {
-            setLockoutUntil(Date.now() + LOCKOUT_MS);
-            loginFailedAttempts = 0;
-            startLockoutTicker();
+                showLoginFeedback(`Invalid credentials. ${remainingAttempts} attempt(s) remaining.`, 'error');
+                return;
+            }
+
+            if (status === 404) {
+                showLoginFeedback('Backend demo login is disabled. Enable MCP_ENABLE_DEMO_LOGIN and restart the server.', 'error');
+            } else {
+                showLoginFeedback(`Login failed: ${error.message || 'Unknown error'}`, 'error');
+            }
             return;
+        } finally {
+            loginBtn.disabled = false;
         }
-
-        showLoginFeedback(`Invalid credentials. ${remainingAttempts} attempt(s) remaining.`, 'error');
     }
 
     function logout() {
@@ -1022,6 +1100,8 @@
             return;
         }
 
+        await ensureChatThreadsStateReady();
+
         const input = document.getElementById('chat-input');
         const query = input.value.trim();
 
@@ -1031,7 +1111,7 @@
         const outputCommand = OutputLayer.detectOutputCommand(query);
         const isMarkupLike = /<\s*\/?\s*[a-z][^>]*>/i.test(query);
         const willCallApi = !outputCommand && !isMarkupLike;
-        addChatMessage(query, { role: 'user', serverSync: willCallApi ? 'none' : 'append' });
+        const userMessage = addChatMessage(query, { role: 'user', serverSync: willCallApi ? 'none' : 'append' });
         if (outputCommand) {
             if (lastAssistantResult == null) {
                 addChatMessage('No previous results to format. Please run a search first, then ask for JSON/table/tree/chart/download.', { role: 'assistant' });
@@ -1117,10 +1197,7 @@
             const activeChat = getActiveChat();
             const response = await fetch(`${config.apiUrl}/api/v1/ask`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Chat-Client-ID': getOrCreateChatClientId(),
-                },
+                headers: buildApiHeaders(),
                 body: JSON.stringify({
                     query: query,
                     output_format: 'auto',
@@ -1202,6 +1279,11 @@
             setConnectionStatus(true, 'Connected');
         } catch (error) {
             removeTypingIndicator();
+            const activeChat = getActiveChat();
+            const activeChatId = activeChat?.id || null;
+            if (willCallApi && userMessage?.record && activeChatId) {
+                await persistMessageRecordToServer(userMessage.record, activeChatId);
+            }
 
             let errorMessage = 'Sorry, I encountered an error while processing your request.';
             if (error.message.includes('Failed to fetch')) {
