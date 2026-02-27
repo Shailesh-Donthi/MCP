@@ -4,12 +4,15 @@ Vacancy Analysis Tools for MCP
 Tools for analyzing staffing and vacancies across units and ranks.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from bson import ObjectId
+import re
 
 from mcp.tools.base_tool import BaseTool
 from mcp.schemas.context_schema import UserContext
 from mcp.query_builder.aggregation_builder import AggregationBuilder
+from mcp.query_builder.builder import SafeQueryBuilder
+from mcp.router.extractors import normalize_common_entity_aliases, fuzzy_best_match
 from mcp.constants import Collections
 
 
@@ -296,6 +299,11 @@ class GetPersonnelDistributionTool(BaseTool):
                     "type": "string",
                     "description": "Filter by district name (case insensitive)",
                 },
+                "district_names": {
+                    "type": "array",
+                    "description": "Optional list of district names for side-by-side comparison",
+                    "items": {"type": "string"},
+                },
                 "unit_name": {
                     "type": "string",
                     "description": "Filter by unit name (case insensitive)",
@@ -317,8 +325,27 @@ class GetPersonnelDistributionTool(BaseTool):
     ) -> Dict[str, Any]:
         district_id = arguments.get("district_id")
         district_name = arguments.get("district_name")
+        raw_district_names = arguments.get("district_names")
         unit_name = arguments.get("unit_name")
         group_by = arguments.get("group_by", "rank")
+
+        district_names: List[str] = []
+        if isinstance(raw_district_names, list):
+            district_names = [
+                str(item).strip()
+                for item in raw_district_names
+                if isinstance(item, str) and item.strip()
+            ]
+        elif isinstance(raw_district_names, str) and raw_district_names.strip():
+            district_names = [
+                part.strip()
+                for part in re.split(r",|\band\b", raw_district_names, flags=re.IGNORECASE)
+                if part and part.strip()
+            ]
+
+        if district_names and not district_name and not district_id and len(district_names) == 1:
+            district_name = district_names[0]
+            district_names = []
 
         # Resolve district name to ID
         if not district_id and district_name:
@@ -353,6 +380,10 @@ class GetPersonnelDistributionTool(BaseTool):
         # Apply scope filter
         query = await self.apply_scope_filter(base_query, context, "personnel")
 
+        if district_names:
+            # Multi-district compare currently supports rank distribution view.
+            return await self._group_by_rank_for_district_names(query, district_names)
+
         # If district filter, resolve personnel through unit_master.unitPersonnelList.
         # Some datasets do not store units on personnel documents.
         if district_id and ObjectId.is_valid(district_id):
@@ -374,6 +405,125 @@ class GetPersonnelDistributionTool(BaseTool):
                 "INVALID_PARAMETER",
                 f"Invalid group_by value: {group_by}",
             )
+
+    async def _resolve_districts_for_compare(
+        self,
+        district_names: List[str],
+    ) -> Tuple[List[Dict[str, str]], List[str]]:
+        resolved: List[Dict[str, str]] = []
+        missing: List[str] = []
+        seen_ids: set[str] = set()
+        all_names = await self.db[Collections.DISTRICT].distinct("name", {"isDelete": False})
+
+        for raw in district_names:
+            probe = normalize_common_entity_aliases(raw).strip()
+            if not probe:
+                continue
+            district = await self.db[Collections.DISTRICT].find_one(
+                {"name": {"$regex": f"^{re.escape(probe)}$", "$options": "i"}, "isDelete": False},
+                {"_id": 1, "name": 1},
+            )
+            if not district:
+                escaped = SafeQueryBuilder.escape_regex(probe)
+                district = await self.db[Collections.DISTRICT].find_one(
+                    {"name": {"$regex": escaped, "$options": "i"}, "isDelete": False},
+                    {"_id": 1, "name": 1},
+                )
+            if not district and all_names:
+                best = fuzzy_best_match(probe, all_names, cutoff=0.76)
+                if best:
+                    district = await self.db[Collections.DISTRICT].find_one(
+                        {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False},
+                        {"_id": 1, "name": 1},
+                    )
+
+            if not district:
+                missing.append(raw)
+                continue
+
+            district_id = str(district["_id"])
+            if district_id in seen_ids:
+                continue
+            seen_ids.add(district_id)
+            resolved.append({"district_id": district_id, "district_name": district.get("name", probe)})
+
+        return resolved, missing
+
+    async def _group_by_rank_for_district_names(
+        self,
+        scoped_query: Dict[str, Any],
+        district_names: List[str],
+    ) -> Dict[str, Any]:
+        resolved, missing = await self._resolve_districts_for_compare(district_names)
+        if not resolved:
+            return self.format_error_response(
+                "NOT_FOUND",
+                f"District not found: {', '.join(district_names)}",
+                {"missing_district_names": missing or district_names},
+            )
+
+        comparison: List[Dict[str, Any]] = []
+        combined_rank_counts: Dict[str, Dict[str, Any]] = {}
+        combined_total = 0
+
+        for item in resolved:
+            district_id = item["district_id"]
+            district_name = item["district_name"]
+            district_query = dict(scoped_query)
+            personnel_ids = await self._get_personnel_ids_in_district(district_id)
+            if personnel_ids:
+                district_query["_id"] = {"$in": personnel_ids}
+            else:
+                district_query["_id"] = {"$exists": False}
+
+            grouped = await self._group_by_rank(district_query, district_id)
+            payload = grouped.get("data", {}) if isinstance(grouped, dict) else {}
+            distribution = payload.get("distribution", []) if isinstance(payload, dict) else []
+            total = int(payload.get("total") or 0) if isinstance(payload, dict) else 0
+
+            comparison.append(
+                {
+                    "districtId": district_id,
+                    "districtName": district_name,
+                    "distribution": distribution,
+                    "total": total,
+                }
+            )
+            combined_total += total
+            for row in distribution:
+                if not isinstance(row, dict):
+                    continue
+                rank_name = row.get("rankName") or "Unknown"
+                rank_id = row.get("rankId") or rank_name
+                count = int(row.get("count") or 0)
+                if rank_id not in combined_rank_counts:
+                    combined_rank_counts[rank_id] = {
+                        "rankId": row.get("rankId"),
+                        "rankName": rank_name,
+                        "rankShortCode": row.get("rankShortCode"),
+                        "count": 0,
+                    }
+                combined_rank_counts[rank_id]["count"] += count
+
+        combined_distribution = sorted(
+            combined_rank_counts.values(),
+            key=lambda item: int(item.get("count") or 0),
+            reverse=True,
+        )
+
+        return self.format_success_response(
+            query_type="personnel_distribution_compare_districts_by_rank",
+            data={
+                "comparison": comparison,
+                "distribution": combined_distribution,
+                "total": combined_total,
+            },
+            metadata={
+                "district_names": [item["district_name"] for item in resolved],
+                "district_ids": [item["district_id"] for item in resolved],
+                "missing_district_names": missing,
+            },
+        )
 
     async def _get_units_in_district(self, district_id: str) -> List[ObjectId]:
         """Get unit IDs in a district"""

@@ -13,7 +13,7 @@ from mcp.schemas.context_schema import UserContext
 from mcp.query_builder.aggregation_builder import AggregationBuilder, AggregationHelpers
 from mcp.utils.formatters import format_personnel_list, stringify_object_ids
 from mcp.constants import Collections
-from mcp.router.extractors import normalize_common_entity_aliases
+from mcp.router.extractors import normalize_common_entity_aliases, fuzzy_best_match
 from mcp.query_builder.builder import SafeQueryBuilder
 
 
@@ -83,6 +83,12 @@ class QueryPersonnelByUnitTool(BaseTool):
             unit_id = await self._resolve_unit_name(unit_name)
 
         if not unit_id:
+            if unit_name:
+                return self.format_error_response(
+                    "NOT_FOUND",
+                    f"Unit not found: {unit_name}",
+                    {"hint": "Provide an exact unit name or unit_id."},
+                )
             return self.format_error_response(
                 "MISSING_PARAMETER",
                 "Unit ID or name is required",
@@ -199,21 +205,42 @@ class QueryPersonnelByUnitTool(BaseTool):
             return None
         raw = re.sub(r"\bSPDO\b", "SDPO", raw, flags=re.IGNORECASE)
 
-        # 1) Exact case-insensitive match
-        exact = await self.db[Collections.UNIT].find_one(
-            {
-                "name": {"$regex": f"^{re.escape(raw)}$", "$options": "i"},
-                "isDelete": False,
-            },
-            {"_id": 1},
-        )
-        if exact:
-            return str(exact["_id"])
+        def normalize_spacing(value: str) -> str:
+            v = re.sub(r"\s+", " ", value).strip()
+            v = re.sub(r"\s*,\s*", ", ", v)
+            v = re.sub(r"\s*\(\s*", " (", v)
+            v = re.sub(r"\s*\)\s*", ")", v)
+            v = re.sub(r"\s+", " ", v).strip()
+            return v
+
+        # 1) Exact case-insensitive match (including punctuation-spacing variants)
+        exact_variants = [raw, normalize_spacing(raw), raw.replace(", ", ","), raw.replace(",", ", ")]
+        seen_exact: set[str] = set()
+        for candidate in exact_variants:
+            key = candidate.lower().strip()
+            if not key or key in seen_exact:
+                continue
+            seen_exact.add(key)
+            exact = await self.db[Collections.UNIT].find_one(
+                {
+                    "name": {"$regex": f"^{re.escape(candidate)}$", "$options": "i"},
+                    "isDelete": False,
+                },
+                {"_id": 1},
+            )
+            if exact:
+                return str(exact["_id"])
 
         # 2) Common suffix expansions for station queries
-        variants = [raw]
+        variants = [raw, normalize_spacing(raw), raw.replace(", ", ","), raw.replace(",", ", ")]
         if not re.search(r"\b(ps|police\s+station|station)\b", raw, re.IGNORECASE):
             variants.extend([f"{raw} PS", f"{raw} Police Station", f"{raw} Station"])
+        normalized_variants: List[str] = []
+        for variant in variants:
+            nv = normalize_spacing(variant)
+            if nv and nv.lower() not in {x.lower() for x in normalized_variants}:
+                normalized_variants.append(nv)
+        variants = normalized_variants
         for name in variants:
             doc = await self.db[Collections.UNIT].find_one(
                 {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "isDelete": False},
@@ -224,22 +251,34 @@ class QueryPersonnelByUnitTool(BaseTool):
 
         # 3) Contains-all-tokens fallback with lightweight scoring
         cleaned = re.sub(r"\b(police\s+station|station|ps)\b", " ", raw, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s+", " ", cleaned).strip() or raw
-        tokens = [re.escape(t) for t in re.split(r"\s+", cleaned) if t]
+        cleaned = re.sub(r"[^a-z0-9\s]", " ", cleaned.lower())
+        cleaned = re.sub(r"\s+", " ", cleaned).strip() or re.sub(r"[^a-z0-9\s]", " ", raw.lower()).strip()
+        tokens = [re.escape(t) for t in re.findall(r"[a-z0-9]+", cleaned) if t]
         if not tokens:
             return None
-        pattern = "".join([rf"(?=.*\b{t}\b)" for t in tokens]) + r".*"
+        pattern = "".join([rf"(?=.*{t})" for t in tokens]) + r".*"
         docs = await self.db[Collections.UNIT].find(
             {"name": {"$regex": pattern, "$options": "i"}, "isDelete": False},
             {"_id": 1, "name": 1},
         ).limit(20).to_list(length=20)
         if not docs:
+            # 4) Fuzzy fallback against available unit names
+            unit_names = await self.db[Collections.UNIT].distinct("name", {"isDelete": False})
+            best = fuzzy_best_match(raw, unit_names, cutoff=0.74)
+            if best:
+                best_doc = await self.db[Collections.UNIT].find_one(
+                    {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False},
+                    {"_id": 1},
+                )
+                if best_doc:
+                    return str(best_doc["_id"])
             return None
 
         cleaned_lower = cleaned.lower()
 
         def score(doc: Dict[str, Any]) -> int:
-            name = str(doc.get("name", "")).lower()
+            name = re.sub(r"[^a-z0-9\s]", " ", str(doc.get("name", "")).lower())
+            name = re.sub(r"\s+", " ", name).strip()
             s = 0
             if name.startswith(cleaned_lower):
                 s += 6
@@ -247,6 +286,8 @@ class QueryPersonnelByUnitTool(BaseTool):
                 s += 4
             if cleaned_lower in name:
                 s += 2
+            overlap = len(set(cleaned_lower.split()) & set(name.split()))
+            s += overlap * 2
             s -= min(len(name), 200) // 25
             return s
 
@@ -585,6 +626,11 @@ class QueryPersonnelByRankTool(BaseTool):
                     "type": "string",
                     "description": "Filter by district name - case insensitive",
                 },
+                "district_names": {
+                    "type": "array",
+                    "description": "Optional list of district names for combined multi-district queries",
+                    "items": {"type": "string"},
+                },
                 "group_by_unit": {
                     "type": "boolean",
                     "description": "Group results by unit",
@@ -616,9 +662,28 @@ class QueryPersonnelByRankTool(BaseTool):
         rank_name = arguments.get("rank_name")
         district_id = arguments.get("district_id")
         district_name = arguments.get("district_name")
+        raw_district_names = arguments.get("district_names")
         group_by_unit = arguments.get("group_by_unit", False)
         include_inactive = arguments.get("include_inactive", False)
         page, page_size, skip = self.get_pagination_params(arguments)
+
+        district_names: List[str] = []
+        if isinstance(raw_district_names, list):
+            district_names = [
+                str(item).strip()
+                for item in raw_district_names
+                if isinstance(item, str) and item.strip()
+            ]
+        elif isinstance(raw_district_names, str) and raw_district_names.strip():
+            district_names = [
+                part.strip()
+                for part in re.split(r",|\band\b", raw_district_names, flags=re.IGNORECASE)
+                if part and part.strip()
+            ]
+
+        if district_names and not district_name and not district_id and len(district_names) == 1:
+            district_name = district_names[0]
+            district_names = []
 
         # Resolve rank_name to rank_id if needed
         if not rank_id and rank_name:
@@ -641,6 +706,17 @@ class QueryPersonnelByRankTool(BaseTool):
                         "hint": "Please verify the district name or use 'list districts' to see available values.",
                     },
                 )
+
+        # Multi-district rank query (e.g., "Circle Inspectors in Guntur and Chittoor")
+        if district_names and len(district_names) >= 2:
+            return await self._execute_multi_district_flat(
+                base_query=self._build_personnel_base_query(include_inactive, rank_id),
+                rank_id=rank_id,
+                district_names=district_names,
+                context=context,
+                page=page,
+                page_size=page_size,
+            )
 
         # Build effective unit scope for district/context filtering.
         # This DB schema stores person->unit mapping in assignment_master.
@@ -943,6 +1019,7 @@ class QueryPersonnelByRankTool(BaseTool):
                 "badgeNo": 1,
                 "mobile": 1,
                 "email": 1,
+                "dateOfBirth": 1,
                 "rankName": "$rankData.name",
                 "rankShortCode": "$rankData.shortCode",
                 "isActive": 1,
@@ -961,6 +1038,78 @@ class QueryPersonnelByRankTool(BaseTool):
         return self.format_success_response(
             query_type="personnel_by_rank",
             data=results,
+            total=total,
+            page=page,
+            page_size=page_size,
+            metadata=metadata,
+        )
+
+    async def _execute_multi_district_flat(
+        self,
+        *,
+        base_query: dict,
+        rank_id: Optional[str],
+        district_names: List[str],
+        context: UserContext,
+        page: int,
+        page_size: int,
+    ) -> Dict[str, Any]:
+        combined: List[Dict[str, Any]] = []
+        resolved_names: List[str] = []
+        missing_names: List[str] = []
+        seen_ids: set[str] = set()
+
+        for district_name in district_names:
+            district_id = await self._resolve_district_name(district_name)
+            if not district_id:
+                missing_names.append(district_name)
+                continue
+            unit_ids = await self._get_effective_unit_ids(context, district_id)
+            if not unit_ids:
+                resolved_names.append(district_name)
+                continue
+            district_result = await self._execute_flat_with_assignments(
+                dict(base_query), unit_ids, rank_id, 1, self.max_results, 0
+            )
+            rows = district_result.get("data", []) if isinstance(district_result, dict) else []
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    person_id = str(row.get("_id") or "")
+                    if person_id and person_id in seen_ids:
+                        continue
+                    if person_id:
+                        seen_ids.add(person_id)
+                    if not row.get("districtName"):
+                        row["districtName"] = district_name
+                    combined.append(row)
+            resolved_names.append(district_name)
+
+        if not combined and missing_names and not resolved_names:
+            return self.format_error_response(
+                "NOT_FOUND",
+                f"District not found: {', '.join(missing_names)}",
+                {"missing_district_names": missing_names},
+            )
+
+        combined.sort(key=lambda row: (str(row.get("name") or "").lower(), str(row.get("userId") or "")))
+        total = len(combined)
+        start = max(0, (page - 1) * page_size)
+        end = start + page_size
+        page_rows = combined[start:end]
+
+        metadata = await self._build_rank_metadata(rank_id)
+        metadata.update(
+            {
+                "district_names": resolved_names,
+                "missing_district_names": missing_names,
+            }
+        )
+
+        return self.format_success_response(
+            query_type="personnel_by_rank",
+            data=page_rows,
             total=total,
             page=page,
             page_size=page_size,
@@ -1064,6 +1213,24 @@ class QueryPersonnelByRankTool(BaseTool):
             {"$unwind": "$assignmentData"},
             self._build_assignment_match_stage(unit_ids),
             {
+                "$lookup": {
+                    "from": Collections.UNIT,
+                    "localField": "assignmentData.unitId",
+                    "foreignField": "_id",
+                    "as": "unitData",
+                }
+            },
+            {"$unwind": {"path": "$unitData", "preserveNullAndEmptyArrays": True}},
+            {
+                "$lookup": {
+                    "from": Collections.DISTRICT,
+                    "localField": "unitData.districtId",
+                    "foreignField": "_id",
+                    "as": "districtData",
+                }
+            },
+            {"$unwind": {"path": "$districtData", "preserveNullAndEmptyArrays": True}},
+            {
                 "$group": {
                     "_id": "$_id",
                     "name": {"$first": "$name"},
@@ -1071,8 +1238,11 @@ class QueryPersonnelByRankTool(BaseTool):
                     "badgeNo": {"$first": "$badgeNo"},
                     "mobile": {"$first": "$mobile"},
                     "email": {"$first": "$email"},
+                    "dateOfBirth": {"$first": "$dateOfBirth"},
                     "rankName": {"$first": "$rankData.name"},
                     "rankShortCode": {"$first": "$rankData.shortCode"},
+                    "unitName": {"$first": "$unitData.name"},
+                    "districtName": {"$first": "$districtData.name"},
                     "isActive": {"$first": "$isActive"},
                 }
             },
@@ -1087,8 +1257,11 @@ class QueryPersonnelByRankTool(BaseTool):
                     "badgeNo": 1,
                     "mobile": 1,
                     "email": 1,
+                    "dateOfBirth": 1,
                     "rankName": 1,
                     "rankShortCode": 1,
+                    "unitName": 1,
+                    "districtName": 1,
                     "isActive": 1,
                 }
             },

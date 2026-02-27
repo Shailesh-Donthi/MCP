@@ -17,6 +17,48 @@ COMMON_QUERY_TYPO_MAP: Dict[str, str] = {
     "arunelpet": "arundelpet",
 }
 
+RANK_PATTERNS: List[Tuple[str, str]] = [
+    (r"\bcircle\s+inspectors?\b", "Circle Inspector"),
+    (r"\binspector\s+general\s+of\s+police\b", "Inspector General of Police"),
+    (r"\bdeputy\s+superintendent\s+of\s+police\b", "Deputy Superintendent of Police"),
+    (r"\bsuperintendent\s+of\s+police\b", "Superintendent of Police"),
+    (r"\bassistant\s+sub[-\s]?inspectors?\b", "Assistant SubInspector"),
+    (r"\bsub[-\s]?inspectors?\b", "Sub Inspector"),
+    (r"\binspector\s+of\s+police\b", "Inspector Of Police"),
+    (r"\bpolice\s+constables?\b", "Police Constable"),
+    (r"\bhead\s+constables?\b", "Head Constable"),
+    (r"\bconstables?\b", "Constable"),
+    (r"\binspectors?\b", "Inspector"),
+    (r"\bsi\b", "Sub-Inspector"),
+    (r"\bsis\b", "Sub-Inspector"),
+    (r"\basi\b", "Assistant Sub-Inspector"),
+    (r"\bhc\b", "Head Constable"),
+    (r"\bpc\b", "Police Constable"),
+    (r"\bdysp\b", "Deputy Superintendent of Police"),
+    (r"\bdsp\b", "Deputy Superintendent of Police"),
+    (r"\bsp\b", "Superintendent of Police"),
+]
+
+_PLACE_FILLER_WORDS = {
+    "give", "me", "info", "about", "details", "detail", "show", "list",
+    "what", "which", "is", "are", "the", "on", "in", "for", "of", "at",
+    "by", "from", "starting", "start", "between", "across", "both", "same",
+    "who", "all",
+    "unit", "units", "station", "stations", "wing", "wings",
+    "district", "districts", "disctrict", "disctricts", "dist", "dist.", "present", "there", "here", "please",
+    "hierarchy", "heirarchy", "structure", "tree", "organization", "organizational",
+    "personnel", "personell", "officers", "officer", "staff", "people", "how", "many",
+    "distribution", "distributed", "visual", "representation", "chart", "graph", "plot",
+    "rank", "ranks", "wise", "ratio", "compare", "comparison", "versus", "vs",
+    "police", "ap",
+    "sdpo", "spdo", "sho", "head", "incharge", "charge", "dpo", "reporting",
+    "work", "working",
+    "si", "sis", "asi", "hc", "pc",
+    "inspector", "inspectors", "constable", "constables",
+    "circle", "sub", "sub-inspector", "subinspector",
+    "date", "birth", "earliest", "oldest", "latest",
+}
+
 
 def normalize_common_query_typos(text: str) -> str:
     if not text:
@@ -66,86 +108,101 @@ def fuzzy_best_match(
     return normalized_to_original.get(matches[0])
 
 
-def extract_place_hint(text: str) -> Optional[str]:
+def _normalize_place_candidate(raw: str) -> Optional[str]:
+    words = [w for w in re.split(r"\s+", str(raw or "").strip()) if w]
+    words = [w for w in words if w.lower() not in _PLACE_FILLER_WORDS]
+    if not words:
+        return None
+    if len(words) > 5:
+        words = words[-4:]
+    value = " ".join(words).strip()
+    if not value:
+        return None
+    if re.search(
+        r"\b(personnel|personell|distribution|visual|representation|chart|graph|plot|birth|starting\s+from)\b",
+        value,
+        re.IGNORECASE,
+    ):
+        return None
+    if value.lower() in {"db", "database", "the db", "the database", "birth", "starting", "from"}:
+        return None
+    return value.title()
+
+
+def extract_place_hints(text: str, *, max_results: int = 4) -> List[str]:
     text = normalize_common_query_typos(text or "")
-    filler_words = {
-        "give", "me", "info", "about", "details", "detail", "show", "list",
-        "what", "which", "is", "are", "the", "on", "in", "for", "of", "at",
-        "by",
-        "who", "all",
-        "unit", "units", "station", "stations",
-        "district", "dist", "dist.", "present", "there", "here", "please",
-        "hierarchy", "heirarchy", "structure", "tree", "organization",
-        "personnel", "personell", "officers", "officer", "staff", "people", "how", "many",
-        "distribution", "distributed", "visual", "representation", "chart", "graph", "plot",
-        "rank", "ranks", "wise",
-        "police", "ap",
-        "sdpo", "spdo", "sho", "head", "incharge", "charge",
-        "si", "sis", "asi", "hc", "pc",
-        "inspector", "inspectors", "constable", "constables",
-        "circle", "sub", "sub-inspector", "subinspector",
-    }
+    if not text:
+        return []
 
-    def normalize_place(raw: str) -> Optional[str]:
-        words = [w for w in re.split(r"\s+", raw.strip()) if w]
-        words = [w for w in words if w.lower() not in filler_words]
-        if not words:
-            return None
-        if len(words) > 3:
-            words = words[-2:]
-        value = " ".join(words).strip()
-        # Reject obvious non-place fragments that can leak in from generic queries
-        # like "personell distribution" or visual/chart prompts.
-        if re.search(r"\b(personnel|personell|distribution|visual|representation|chart|graph|plot)\b", value, re.IGNORECASE):
-            return None
-        if value.lower() in {"db", "database", "the db", "the database"}:
-            return None
-        return value.title()
+    found: List[str] = []
 
-    district_matches = list(
-        re.finditer(r"([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\s+(?:district|dist\.?)\b", text, re.IGNORECASE)
-    )
-    if district_matches:
-        normalized = normalize_place(district_matches[-1].group(1))
-        if normalized:
-            return normalized
+    def add_candidate(raw: str) -> None:
+        normalized = _normalize_place_candidate(raw)
+        if not normalized:
+            return
+        if " and " in normalized.lower():
+            parts = [p.strip() for p in re.split(r"\band\b", normalized, flags=re.IGNORECASE) if p and p.strip()]
+            if len(parts) >= 2:
+                for part in parts:
+                    add_candidate(part)
+                return
+        if normalized.lower() in {x.lower() for x in found}:
+            return
+        found.append(normalized)
 
-    for pattern in [r"\b(?:in|for|of|at|on)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(?:\?|$)"]:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            normalized = normalize_place(match.group(1))
-            if normalized:
-                return normalized
-    return None
+    for match in re.finditer(r"([A-Za-z]+(?:\s+[A-Za-z]+){0,5})\s+(?:district|dist\.?)\b", text, re.IGNORECASE):
+        add_candidate(match.group(1))
+        if len(found) >= max_results:
+            return found
+
+    connectors = [
+        r"\bbetween\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\s+and\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(?:\s+districts?)?(?=[\s\?\.,]|$)",
+        r"\bboth\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\s+and\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(?:\s+districts?)?(?=[\s\?\.,]|$)",
+        r"\b(?:in|for)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\s+and\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\s+districts?\b",
+        r"\b([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\s+(?:vs\.?|versus)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(?:\s+districts?)?(?=[\s\?\.,]|$)",
+    ]
+    for pattern in connectors:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            add_candidate(match.group(1))
+            add_candidate(match.group(2))
+            if len(found) >= max_results:
+                return found
+
+    for pattern in [r"\b(?:in|for|at|on|under)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(?:\?|$|,|\.)"]:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            add_candidate(match.group(1))
+            if len(found) >= max_results:
+                return found
+
+    return found
+
+
+def extract_place_hint(text: str) -> Optional[str]:
+    candidates = extract_place_hints(text, max_results=1)
+    return candidates[0] if candidates else None
+
+
+def extract_rank_hints(text: str) -> List[str]:
+    text = normalize_common_query_typos(text or "")
+    if not text:
+        return []
+    hits: List[Tuple[int, str]] = []
+    for pattern, rank in RANK_PATTERNS:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            hits.append((match.start(), rank))
+    if not hits:
+        return []
+    hits.sort(key=lambda item: item[0])
+    ordered: List[str] = []
+    for _, rank in hits:
+        if rank not in ordered:
+            ordered.append(rank)
+    return ordered
 
 
 def extract_rank_hint(text: str) -> Optional[str]:
-    text = normalize_common_query_typos(text or "")
-    rank_patterns: List[Tuple[str, str]] = [
-        (r"\bcircle\s+inspectors?\b", "Circle Inspector"),
-        (r"\binspector\s+general\s+of\s+police\b", "Inspector General of Police"),
-        (r"\bdeputy\s+superintendent\s+of\s+police\b", "Deputy Superintendent of Police"),
-        (r"\bsuperintendent\s+of\s+police\b", "Superintendent of Police"),
-        (r"\bassistant\s+sub[-\s]?inspectors?\b", "Assistant SubInspector"),
-        (r"\bsub[-\s]?inspectors?\b", "Sub Inspector"),
-        (r"\binspector\s+of\s+police\b", "Inspector Of Police"),
-        (r"\bpolice\s+constables?\b", "Police Constable"),
-        (r"\bhead\s+constables?\b", "Head Constable"),
-        (r"\bconstables?\b", "Constable"),
-        (r"\binspectors?\b", "Inspector"),
-        (r"\bsi\b", "Sub-Inspector"),
-        (r"\bsis\b", "Sub-Inspector"),
-        (r"\basi\b", "Assistant Sub-Inspector"),
-        (r"\bhc\b", "Head Constable"),
-        (r"\bpc\b", "Police Constable"),
-        (r"\bdysp\b", "Deputy Superintendent of Police"),
-        (r"\bdsp\b", "Deputy Superintendent of Police"),
-        (r"\bsp\b", "Superintendent of Police"),
-    ]
-    for pattern, rank in rank_patterns:
-        if re.search(pattern, text, re.IGNORECASE):
-            return rank
-    return None
+    hints = extract_rank_hints(text)
+    return hints[0] if hints else None
 
 
 def extract_user_id_hint(text: str) -> Optional[str]:

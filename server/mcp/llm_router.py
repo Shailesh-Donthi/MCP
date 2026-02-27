@@ -509,10 +509,19 @@ class IntelligentQueryHandler:
                 if not new_args.get("name") and selected.get("name"):
                     new_args["name"] = selected["name"]
             elif selected_type == "unit":
-                if not new_args.get("unit_name") and selected.get("unit_name"):
-                    new_args["unit_name"] = selected["unit_name"]
-                if not new_args.get("name") and selected.get("unit_name"):
-                    new_args["name"] = selected["unit_name"]
+                selected_unit_name = selected.get("unit_name")
+                explicit_unit_in_query = bool(extract_unit_hint(query))
+                # For deictic follow-ups ("there", "that unit"), prefer the
+                # previously selected concrete unit over any fuzzy LLM value.
+                if isinstance(selected_unit_name, str) and selected_unit_name.strip():
+                    if not explicit_unit_in_query:
+                        new_args["unit_name"] = selected_unit_name
+                        new_args["name"] = selected_unit_name
+                    else:
+                        if not new_args.get("unit_name"):
+                            new_args["unit_name"] = selected_unit_name
+                        if not new_args.get("name"):
+                            new_args["name"] = selected_unit_name
                 if not new_args.get("district_name") and selected.get("district_name"):
                     new_args["district_name"] = selected["district_name"]
             elif selected_type == "district":
@@ -585,7 +594,7 @@ class IntelligentQueryHandler:
         # Handle typo-heavy prompts like "ist the details of the personnel there"
         # by not requiring a strict action verb.
         asks_details = bool(__import__("re").search(r"\b(details?|info|information)\b", q))
-        has_action = bool(__import__("re").search(r"\b(list|show|get|give)\b", q))
+        has_action = bool(__import__("re").search(r"\b(list|show|get|give|who|which|tell|provide|find)\b", q))
         refers_place = bool(
             __import__("re").search(r"\b(there|here|that unit|this unit|that station|this station|in that|in this)\b", q)
         )

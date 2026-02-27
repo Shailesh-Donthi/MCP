@@ -14,7 +14,7 @@ from mcp.tools.base_tool import BaseTool
 from mcp.schemas.context_schema import UserContext
 from mcp.utils.date_parser import parse_date_range, get_date_range_description
 from mcp.constants import Collections
-from mcp.router.extractors import normalize_common_entity_aliases
+from mcp.router.extractors import normalize_common_entity_aliases, fuzzy_best_match
 from mcp.core.logging_config import log_structured
 
 
@@ -488,19 +488,39 @@ class GetUnitCommandHistoryTool(BaseTool):
         # Normalize common typo alias used by users/UI prompts.
         raw = re.sub(r"\bSPDO\b", "SDPO", raw, flags=re.IGNORECASE)
 
+        def normalize_spacing(value: str) -> str:
+            v = re.sub(r"\s+", " ", value).strip()
+            v = re.sub(r"\s*,\s*", ", ", v)
+            v = re.sub(r"\s*\(\s*", " (", v)
+            v = re.sub(r"\s*\)\s*", ")", v)
+            v = re.sub(r"\s+", " ", v).strip()
+            return v
+
         # 1) Exact case-insensitive match
-        exact = await self.db[Collections.UNIT].find_one(
-            {"name": {"$regex": f"^{re.escape(raw)}$", "$options": "i"}, "isDelete": False},
-            {"_id": 1},
-        )
-        if exact:
-            return str(exact["_id"])
+        exact_variants = [raw, normalize_spacing(raw), raw.replace(", ", ","), raw.replace(",", ", ")]
+        seen_exact: set[str] = set()
+        for candidate in exact_variants:
+            key = candidate.lower().strip()
+            if not key or key in seen_exact:
+                continue
+            seen_exact.add(key)
+            exact = await self.db[Collections.UNIT].find_one(
+                {"name": {"$regex": f"^{re.escape(candidate)}$", "$options": "i"}, "isDelete": False},
+                {"_id": 1},
+            )
+            if exact:
+                return str(exact["_id"])
 
         # 2) Try common police-station suffix expansions
-        variants = [raw]
+        variants = [raw, normalize_spacing(raw), raw.replace(", ", ","), raw.replace(",", ", ")]
         if not re.search(r"\b(ps|police\s+station|station)\b", raw, re.IGNORECASE):
             variants.extend([f"{raw} PS", f"{raw} Police Station", f"{raw} Station"])
-        for name in variants:
+        normalized_variants: List[str] = []
+        for variant in variants:
+            nv = normalize_spacing(variant)
+            if nv and nv.lower() not in {x.lower() for x in normalized_variants}:
+                normalized_variants.append(nv)
+        for name in normalized_variants:
             doc = await self.db[Collections.UNIT].find_one(
                 {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}, "isDelete": False},
                 {"_id": 1},
@@ -510,11 +530,12 @@ class GetUnitCommandHistoryTool(BaseTool):
 
         # 3) Contains-all-tokens fallback with stopword stripping and ranking.
         cleaned = re.sub(r"\b(police\s+station|station|ps)\b", " ", raw, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s+", " ", cleaned).strip() or raw
-        tokens = [re.escape(t) for t in re.split(r"\s+", cleaned) if t]
+        cleaned = re.sub(r"[^a-z0-9\s]", " ", cleaned.lower())
+        cleaned = re.sub(r"\s+", " ", cleaned).strip() or re.sub(r"[^a-z0-9\s]", " ", raw.lower()).strip()
+        tokens = [re.escape(t) for t in re.findall(r"[a-z0-9]+", cleaned) if t]
         if not tokens:
             return None
-        pattern = "".join([rf"(?=.*\b{t}\b)" for t in tokens]) + r".*"
+        pattern = "".join([rf"(?=.*{t})" for t in tokens]) + r".*"
         cursor = self.db[Collections.UNIT].find(
             {"name": {"$regex": pattern, "$options": "i"}, "isDelete": False},
             {"_id": 1, "name": 1},
@@ -524,7 +545,8 @@ class GetUnitCommandHistoryTool(BaseTool):
             cleaned_lower = cleaned.lower()
 
             def score(doc: Dict[str, Any]) -> int:
-                name = str(doc.get("name", "")).lower()
+                name = re.sub(r"[^a-z0-9\s]", " ", str(doc.get("name", "")).lower())
+                name = re.sub(r"\s+", " ", name).strip()
                 s = 0
                 if name.startswith(cleaned_lower):
                     s += 6
@@ -532,10 +554,21 @@ class GetUnitCommandHistoryTool(BaseTool):
                     s += 4
                 if cleaned_lower in name:
                     s += 2
+                overlap = len(set(cleaned_lower.split()) & set(name.split()))
+                s += overlap * 2
                 # Prefer shorter names when otherwise similar.
                 s -= min(len(name), 200) // 25
                 return s
 
             best = sorted(docs, key=score, reverse=True)[0]
             return str(best["_id"])
+        unit_names = await self.db[Collections.UNIT].distinct("name", {"isDelete": False})
+        best = fuzzy_best_match(raw, unit_names, cutoff=0.74)
+        if best:
+            best_doc = await self.db[Collections.UNIT].find_one(
+                {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False},
+                {"_id": 1},
+            )
+            if best_doc:
+                return str(best_doc["_id"])
         return None
