@@ -16,13 +16,8 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "*"
     MCP_HOST: str = "127.0.0.1"
     MCP_PORT: int = 8090
-    MCP_ALLOW_ANONYMOUS_ACCESS: bool = False
     MCP_ANON_SCOPE_LEVEL: str = "state"
     MCP_ENABLE_DB_TEST_ENDPOINT: bool = False
-    MCP_ENABLE_DEMO_LOGIN: bool = False
-    MCP_DEMO_USERNAME: str = "9999"
-    MCP_DEMO_PIN: str = "9999"
-    MCP_DEMO_LOGIN_TOKEN_TTL_MINUTES: int = 480
 
     REDIS_URL: str | None = None
 

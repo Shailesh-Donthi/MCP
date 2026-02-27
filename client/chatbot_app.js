@@ -3,19 +3,11 @@
     const config = {
         apiUrl: defaultApiUrl,
     };
-    const DEMO_USERNAME = '9999';
-    const DEMO_PIN = '9999';
-    const AUTH_STORAGE_KEY = 'mcpDemoAuth';
     const AUTH_BEARER_STORAGE_KEY = 'mcpAuthBearerToken';
-    const AUTH_LOCKOUT_KEY = 'mcpDemoAuthLockoutUntil';
-    const MAX_LOGIN_ATTEMPTS = 5;
-    const LOCKOUT_MS = 60 * 1000;
     let lastAssistantResult = null;
     const responseBubblePagers = new Map();
     let responseBubblePagerCounter = 0;
     const backendContextDesyncWarnedChats = new Set();
-    let loginFailedAttempts = 0;
-    let lockoutIntervalRef = null;
     const CHAT_CLIENT_ID_STORAGE_KEY = 'mcpChatClientId';
     let chatThreadsState = null;
     let chatThreadsReadyPromise = null;
@@ -660,197 +652,13 @@
     }
 
     function isAuthenticated() {
-        try {
-            return localStorage.getItem(AUTH_STORAGE_KEY) === '1' && Boolean(getStoredBearerToken());
-        } catch (_error) {
-            return Boolean(getStoredBearerToken());
-        }
+        return true;
     }
 
-    function getLockoutUntil() {
-        return Number(localStorage.getItem(AUTH_LOCKOUT_KEY) || 0);
-    }
-
-    function setLockoutUntil(timestampMs) {
-        if (!timestampMs || timestampMs <= 0) {
-            localStorage.removeItem(AUTH_LOCKOUT_KEY);
-            return;
-        }
-        localStorage.setItem(AUTH_LOCKOUT_KEY, String(timestampMs));
-    }
-
-    function getRemainingLockoutSeconds() {
-        const until = getLockoutUntil();
-        if (!until) return 0;
-        return Math.max(0, Math.ceil((until - Date.now()) / 1000));
-    }
-
-    function isLockedOut() {
-        return getRemainingLockoutSeconds() > 0;
-    }
-
-    function showLoginFeedback(message, tone = 'error') {
-        const feedback = document.getElementById('loginFeedback');
-        if (!feedback) return;
-        feedback.className = `login-feedback ${tone}`;
-        feedback.textContent = message || '';
-    }
-
-    function showLoginPortal() {
-        const loginPortal = document.getElementById('loginPortal');
+    function initializeAccessState() {
         const chatApp = document.getElementById('chatApp');
-        if (chatApp) chatApp.style.display = 'none';
-        if (loginPortal) loginPortal.style.display = 'block';
-    }
-
-    function showChatApp() {
-        const loginPortal = document.getElementById('loginPortal');
-        const chatApp = document.getElementById('chatApp');
-        if (loginPortal) loginPortal.style.display = 'none';
         if (chatApp) chatApp.style.display = 'flex';
-    }
-
-    function stopLockoutTicker() {
-        if (lockoutIntervalRef) {
-            clearInterval(lockoutIntervalRef);
-            lockoutIntervalRef = null;
-        }
-    }
-
-    function startLockoutTicker() {
-        stopLockoutTicker();
-        const refresh = () => {
-            const remaining = getRemainingLockoutSeconds();
-            const loginBtn = document.getElementById('loginBtn');
-            if (remaining <= 0) {
-                stopLockoutTicker();
-                if (loginBtn) loginBtn.disabled = false;
-                showLoginFeedback('You can try logging in again.', 'warning');
-                return;
-            }
-            if (loginBtn) loginBtn.disabled = true;
-            showLoginFeedback(`Too many failed attempts. Try again in ${remaining}s.`, 'warning');
-        };
-        refresh();
-        lockoutIntervalRef = setInterval(refresh, 1000);
-    }
-
-    function clearAuthState() {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
-        localStorage.removeItem(AUTH_BEARER_STORAGE_KEY);
-        try { sessionStorage.removeItem(AUTH_BEARER_STORAGE_KEY); } catch (_e) {}
-        setLockoutUntil(0);
-        loginFailedAttempts = 0;
-        stopLockoutTicker();
-    }
-
-    function applyAuthGateOnLoad() {
-        const usernameInput = document.getElementById('loginUsername');
-        const pinInput = document.getElementById('loginPin');
-
-        if (isAuthenticated()) {
-            showChatApp();
-            setConnectionStatus(true, 'Ready');
-            const chatInput = document.getElementById('chat-input');
-            if (chatInput) chatInput.focus();
-            return;
-        }
-
-        showLoginPortal();
-        setConnectionStatus(false, 'Locked');
-        if (usernameInput) usernameInput.focus();
-        if (pinInput) pinInput.value = '';
-        if (isLockedOut()) {
-            startLockoutTicker();
-        } else {
-            const loginBtn = document.getElementById('loginBtn');
-            if (loginBtn) loginBtn.disabled = false;
-        }
-    }
-
-    async function handleLoginSubmit(event) {
-        event.preventDefault();
-
-        const usernameInput = document.getElementById('loginUsername');
-        const pinInput = document.getElementById('loginPin');
-        const loginBtn = document.getElementById('loginBtn');
-        if (!usernameInput || !pinInput || !loginBtn) return;
-
-        if (isLockedOut()) {
-            startLockoutTicker();
-            return;
-        }
-
-        const username = usernameInput.value.trim();
-        const pin = pinInput.value.trim();
-        if (!username || !pin) {
-            showLoginFeedback('Enter both username and PIN.', 'error');
-            return;
-        }
-
-        loginBtn.disabled = true;
-        showLoginFeedback('Signing in...', 'warning');
-
-        try {
-            const payload = await chatApiFetch('/api/v1/auth/login', {
-                method: 'POST',
-                body: JSON.stringify({ username, pin }),
-            });
-            const accessToken = typeof payload?.access_token === 'string' ? payload.access_token.trim() : '';
-            if (!accessToken) {
-                throw new Error('Login response did not include an access token.');
-            }
-            localStorage.setItem(AUTH_BEARER_STORAGE_KEY, accessToken);
-            localStorage.setItem(AUTH_STORAGE_KEY, '1');
-            setLockoutUntil(0);
-            loginFailedAttempts = 0;
-            stopLockoutTicker();
-            showLoginFeedback('Login successful. Redirecting...', 'success');
-            showChatApp();
-            setConnectionStatus(true, 'Ready');
-            pinInput.value = '';
-            const chatInput = document.getElementById('chat-input');
-            if (chatInput) chatInput.focus();
-            return;
-        } catch (error) {
-            const status = Number(error?.status || 0);
-            if (status === 401) {
-                loginFailedAttempts += 1;
-                const remainingAttempts = Math.max(0, MAX_LOGIN_ATTEMPTS - loginFailedAttempts);
-                pinInput.value = '';
-                pinInput.focus();
-
-                if (remainingAttempts <= 0) {
-                    setLockoutUntil(Date.now() + LOCKOUT_MS);
-                    loginFailedAttempts = 0;
-                    startLockoutTicker();
-                    return;
-                }
-
-                showLoginFeedback(`Invalid credentials. ${remainingAttempts} attempt(s) remaining.`, 'error');
-                return;
-            }
-
-            if (status === 404) {
-                showLoginFeedback('Backend demo login is disabled. Enable MCP_ENABLE_DEMO_LOGIN and restart the server.', 'error');
-            } else {
-                showLoginFeedback(`Login failed: ${error.message || 'Unknown error'}`, 'error');
-            }
-            return;
-        } finally {
-            loginBtn.disabled = false;
-        }
-    }
-
-    function logout() {
-        clearAuthState();
-        showLoginPortal();
-        setConnectionStatus(false, 'Locked');
-        const usernameInput = document.getElementById('loginUsername');
-        const pinInput = document.getElementById('loginPin');
-        if (usernameInput) usernameInput.focus();
-        if (pinInput) pinInput.value = '';
-        showLoginFeedback('You have been logged out.', 'warning');
+        setConnectionStatus(true, 'Ready');
     }
 
     function setConnectionStatus(online, label) {
@@ -932,12 +740,6 @@
         if (!messageDiv) {
             document.getElementById('chat-input').value = command;
             sendMessage();
-            return;
-        }
-
-        if (!isAuthenticated()) {
-            showLoginPortal();
-            setConnectionStatus(false, 'Locked');
             return;
         }
 
@@ -1229,12 +1031,6 @@
     }
 
     async function sendMessage() {
-        if (!isAuthenticated()) {
-            showLoginPortal();
-            setConnectionStatus(false, 'Locked');
-            return;
-        }
-
         await ensureChatThreadsStateReady();
 
         const input = document.getElementById('chat-input');
@@ -1441,18 +1237,8 @@
         if (appInitialized) return;
         appInitialized = true;
 
-        const loginForm = document.getElementById('loginForm');
-        if (loginForm) {
-            loginForm.addEventListener('submit', handleLoginSubmit);
-        }
-
-        const logoutBtn = document.getElementById('logoutBtn');
-        if (logoutBtn) {
-            logoutBtn.addEventListener('click', logout);
-        }
-
         await initializeChatThreadsUi();
-        applyAuthGateOnLoad();
+        initializeAccessState();
     }
 
     window.autoResize = autoResize;
@@ -1463,8 +1249,6 @@
     window.startPersonnelSearch = startPersonnelSearch;
     window.startNewChat = startNewChat;
     window.sendMessage = sendMessage;
-    window.logout = logout;
-    window.handleLoginSubmit = handleLoginSubmit;
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => { void initializeApp(); }, { once: true });

@@ -77,114 +77,6 @@
             pointer-events: none;
         }
 
-        .login-portal {
-            width: min(460px, 100%);
-            z-index: 3;
-            position: relative;
-        }
-
-        .login-card {
-            background: rgba(255, 255, 255, 0.96);
-            backdrop-filter: blur(8px);
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.45);
-            box-shadow: var(--shadow-lg);
-            padding: 26px 24px 22px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-
-        .login-title {
-            color: var(--primary-color);
-            font-size: 1.35rem;
-            font-weight: 700;
-            letter-spacing: 0.01em;
-        }
-
-        .login-subtitle {
-            color: var(--text-secondary);
-            font-size: 0.92rem;
-            line-height: 1.45;
-        }
-
-        .login-field {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .login-field label {
-            font-size: 0.85rem;
-            color: #334e68;
-            font-weight: 600;
-        }
-
-        .login-field input {
-            width: 100%;
-            border: 1.5px solid #c8d5e6;
-            border-radius: 10px;
-            padding: 11px 12px;
-            font-size: 0.98rem;
-            font-family: inherit;
-            color: var(--text-primary);
-            background: #fff;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .login-field input:focus {
-            outline: none;
-            border-color: var(--accent-color);
-            box-shadow: var(--focus-ring);
-        }
-
-        .login-btn {
-            border: none;
-            border-radius: 11px;
-            background: linear-gradient(135deg, var(--primary-color), var(--primary-light));
-            color: #fff;
-            font-size: 0.95rem;
-            font-weight: 600;
-            padding: 12px 14px;
-            cursor: pointer;
-            transition: transform 0.2s, opacity 0.2s;
-            margin-top: 2px;
-        }
-
-        .login-btn:hover:not(:disabled) {
-            transform: translateY(-1px);
-        }
-
-        .login-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .login-feedback {
-            min-height: 20px;
-            font-size: 0.84rem;
-            line-height: 1.35;
-        }
-
-        .login-feedback.error {
-            color: var(--danger-text);
-        }
-
-        .login-feedback.warning {
-            color: var(--warning-text);
-        }
-
-        .login-feedback.success {
-            color: var(--success-color);
-        }
-
-        .login-hint {
-            font-size: 0.81rem;
-            color: #52667d;
-            border-top: 1px dashed #d8e1ee;
-            padding-top: 10px;
-        }
-
         .chat-container {
             width: min(1280px, 100%);
             height: min(96dvh, 980px);
@@ -253,25 +145,6 @@
             align-items: center;
             gap: 8px;
             font-size: 0.875rem;
-        }
-
-        .logout-btn {
-            border: 1px solid rgba(255, 255, 255, 0.35);
-            color: #fff;
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 8px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            letter-spacing: 0.02em;
-            padding: 7px 10px;
-            margin-left: 10px;
-            cursor: pointer;
-            transition: background 0.2s, border-color 0.2s;
-        }
-
-        .logout-btn:hover {
-            background: rgba(255, 255, 255, 0.24);
-            border-color: rgba(255, 255, 255, 0.5);
         }
 
         .chat-shell {
@@ -1059,16 +932,6 @@
                 padding: 0;
             }
 
-            .login-portal {
-                width: 100%;
-                padding: 0 12px;
-            }
-
-            .login-card {
-                border-radius: 14px;
-                padding: 20px 16px 18px;
-            }
-
             .chat-container {
                 height: 100dvh;
                 max-height: none;
@@ -1148,29 +1011,7 @@
     </style>
 </head>
 <body>
-    <div class="login-portal" id="loginPortal" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
-        <form class="login-card" id="loginForm" novalidate>
-            <h2 class="login-title" id="loginTitle">Police Assistant Login</h2>
-            <p class="login-subtitle">Sign in to access personnel and reporting tools.</p>
-
-            <div class="login-field">
-                <label for="loginUsername">Username</label>
-                <input id="loginUsername" name="username" type="text" autocomplete="username" required>
-            </div>
-
-            <div class="login-field">
-                <label for="loginPin">PIN</label>
-                <input id="loginPin" name="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
-            </div>
-
-            <button class="login-btn" id="loginBtn" type="submit">Sign In</button>
-            <div class="login-feedback" id="loginFeedback" aria-live="polite"></div>
-
-            <p class="login-hint">Demo credentials for now: username <strong>9999</strong> and PIN <strong>9999</strong>.</p>
-        </form>
-    </div>
-
-    <div class="chat-container" id="chatApp" style="display: none;">
+    <div class="chat-container" id="chatApp">
         <!-- Header -->
         <div class="chat-header">
             <div class="header-icon">
@@ -1187,7 +1028,6 @@
                 <span class="status-dot"></span>
                 <span id="connectionStatus">Ready</span>
             </div>
-            <button class="logout-btn" id="logoutBtn" type="button">Logout</button>
         </div>
 
         <div class="chat-shell">
@@ -1271,6 +1111,6 @@
     </div>
 
     <script src="chatbot_output.js?v=4"></script>
-    <script src="chatbot_app.js?v=6"></script>
+    <script src="chatbot_app.js?v=7"></script>
 </body>
 </html>
