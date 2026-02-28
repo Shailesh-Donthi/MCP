@@ -53,6 +53,7 @@ _PLACE_FILLER_WORDS = {
     "rank", "ranks", "wise", "ratio", "compare", "comparison", "versus", "vs",
     "police", "ap",
     "sdpo", "spdo", "sho", "head", "incharge", "charge", "dpo", "reporting",
+    "ps",
     "work", "working",
     "si", "sis", "asi", "hc", "pc",
     "inspector", "inspectors", "constable", "constables",
@@ -153,6 +154,26 @@ def extract_place_hints(text: str, *, max_results: int = 4) -> List[str]:
 
     for match in re.finditer(r"([A-Za-z]+(?:\s+[A-Za-z]+){0,5})\s+(?:district|dist\.?)\b", text, re.IGNORECASE):
         add_candidate(match.group(1))
+        if len(found) >= max_results:
+            return found
+
+    # Rank/role phrasing fallback: "who is the SP of guntur"
+    # Keep this narrow so generic "of <name>" person queries are not treated as places.
+    role_place_pattern = (
+        r"\b(?:who\s+is\s+(?:the\s+)?)?"
+        r"(?:superintendent\s+of\s+police|deputy\s+superintendent\s+of\s+police|"
+        r"circle\s+inspector|inspector|constable|si|asi|hc|pc|dsp|dysp|sp)"
+        r"\s+of\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(?:\s+district)?(?=\s*(?:\?|,|\.|$))"
+    )
+    for match in re.finditer(role_place_pattern, text, re.IGNORECASE):
+        candidate = match.group(1)
+        if re.search(
+            r"\b(ps|police\s+station|station|sdpo|spdo|dpo|range|circle|wing|unit)\b",
+            candidate,
+            re.IGNORECASE,
+        ):
+            continue
+        add_candidate(candidate)
         if len(found) >= max_results:
             return found
 

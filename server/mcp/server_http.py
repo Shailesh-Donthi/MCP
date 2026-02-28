@@ -1221,6 +1221,34 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
                 # Remove "District"/"Dist" if accidentally included
                 name = re.sub(r'\s*(?:District|Dist\.?)\s*$', '', name, flags=re.IGNORECASE).strip()
                 return name
+
+        # Rank-context fallback for phrasing like "who is the SP of guntur".
+        rank_context = bool(
+            re.search(
+                r"\b("
+                r"si|asi|hc|pc|inspector|constable|circle\s+inspector|"
+                r"dsp|dysp|sp|superintendent\s+of\s+police|"
+                r"deputy\s+superintendent\s+of\s+police"
+                r")\b",
+                q,
+                re.IGNORECASE,
+            )
+        )
+        if rank_context:
+            m = re.search(
+                r"\b(?:of|in|for|at|on)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,3})(?:\s+district)?(?=\s*(?:\?|,|\.|$))",
+                q,
+                re.IGNORECASE,
+            )
+            if m:
+                candidate = re.sub(r"\s+", " ", m.group(1)).strip()
+                candidate = re.sub(r"^(?:the|a|an)\s+", "", candidate, flags=re.IGNORECASE).strip()
+                if candidate and not re.search(
+                    r"\b(ps|police\s+station|station|sdpo|spdo|dpo|range|circle|wing|unit)\b",
+                    candidate,
+                    re.IGNORECASE,
+                ):
+                    return candidate.title()
         return None
 
     # Helper to extract unit name from query
