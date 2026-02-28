@@ -59,6 +59,8 @@ _PLACE_FILLER_WORDS = {
     "inspector", "inspectors", "constable", "constables",
     "circle", "sub", "sub-inspector", "subinspector",
     "date", "birth", "earliest", "oldest", "latest",
+    "alphabetical", "alphabetic", "ascending", "descending",
+    "sorted", "order", "a-z", "z-a", "asc", "desc",
 }
 
 
@@ -121,7 +123,7 @@ def _normalize_place_candidate(raw: str) -> Optional[str]:
     if not value:
         return None
     if re.search(
-        r"\b(personnel|personell|distribution|visual|representation|chart|graph|plot|birth|starting\s+from)\b",
+        r"\b(personnel|personell|distribution|visual|representation|chart|graph|plot|birth|starting\s+from|alphabetical|alphabetic|ascending|descending|sorted?|order|a-z|z-a|asc|desc)\b",
         value,
         re.IGNORECASE,
     ):

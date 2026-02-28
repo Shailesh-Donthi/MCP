@@ -325,9 +325,17 @@ def _format_empty_result(tool_name: str, arguments: Dict[str, Any], metadata: Di
 
     elif tool_name == "query_personnel_by_rank":
         rank = arguments.get("rank_name", "the specified rank")
+        relation = str(arguments.get("rank_relation") or "exact").strip().lower()
+        relation_prefix = {
+            "above": "above",
+            "below": "below",
+            "at_or_above": "at or above",
+            "at_or_below": "at or below",
+        }.get(relation)
+        rank_phrase = f"{relation_prefix} {rank} rank" if relation_prefix else rank
         if district:
-            return f"No {rank} personnel found in {district} district."
-        return f"No personnel found with rank {rank}."
+            return f"No personnel found {rank_phrase} in {district} district."
+        return f"No personnel found with rank filter: {rank_phrase}."
 
     elif tool_name == "get_unit_hierarchy":
         if district:
@@ -383,6 +391,8 @@ def _format_empty_result(tool_name: str, arguments: Dict[str, Any], metadata: Di
         if name:
             return f"I couldn't find anyone named '{name}' in the database."
         return "No responsible user information available."
+    elif tool_name == "query_linked_master_data":
+        return "No master-data records matched your query."
 
     # Default message
     return "No results found for your query. Please try with different criteria."
@@ -578,7 +588,85 @@ def _get_tool_response_handlers(
         "get_personnel_distribution": lambda: _format_distribution_response(query_lower, data, arguments),
         "get_village_coverage": lambda: _format_village_coverage_response(data, arguments),
         "find_missing_village_mappings": lambda: _format_missing_village_response(data, arguments),
+        "query_linked_master_data": lambda: _format_linked_master_data_response(
+            data,
+            arguments,
+            pagination or {},
+            metadata,
+        ),
     }
+
+
+def _format_linked_master_data_response(
+    data: Any,
+    arguments: Dict[str, Any],
+    pagination: Dict[str, Any],
+    metadata: Dict[str, Any],
+) -> str:
+    mode = str(arguments.get("mode") or "").strip().lower()
+
+    # Discovery mode response
+    if mode == "discover" and isinstance(data, dict):
+        requested = data.get("requested_collections", [])
+        relations = data.get("relations", [])
+        if isinstance(requested, list):
+            existing = [c for c in requested if isinstance(c, dict) and c.get("exists")]
+            missing = [c for c in requested if isinstance(c, dict) and not c.get("exists")]
+            active_relations = [r for r in relations if isinstance(r, dict) and r.get("active")]
+            response = (
+                f"Master-data discovery completed.\n\n"
+                f"- Requested collections: {len(requested)}\n"
+                f"- Available in DB: {len(existing)}\n"
+                f"- Missing in DB: {len(missing)}\n"
+                f"- Active relationships: {len(active_relations)}"
+            )
+            if missing:
+                missing_names = [str(item.get("canonical")) for item in missing if item.get("canonical")]
+                if missing_names:
+                    response += f"\n\nMissing collections: {', '.join(missing_names)}"
+            return response
+        return "Master-data discovery completed."
+
+    # Query mode response
+    if isinstance(data, list):
+        total = pagination.get("total", len(data))
+        collection_info = (metadata or {}).get("collection_resolution", {})
+        canonical = (
+            collection_info.get("canonical")
+            or arguments.get("collection")
+            or "requested collection"
+        )
+        response = (
+            f"Found {total} record(s) in `{canonical}`."
+        )
+        if data:
+            preview_lines: List[str] = []
+            for idx, row in enumerate(data[:5], start=1):
+                if not isinstance(row, dict):
+                    continue
+                label = (
+                    row.get("name")
+                    or row.get("flowName")
+                    or row.get("errorCode")
+                    or row.get("key")
+                    or row.get("userId")
+                    or row.get("_id")
+                    or "record"
+                )
+                preview_lines.append(f"{idx}. {label}")
+            if preview_lines:
+                response += "\n\nSample results:\n" + "\n".join(preview_lines)
+        forward = (metadata or {}).get("forward_links", [])
+        reverse = (metadata or {}).get("reverse_links", [])
+        if isinstance(forward, list) or isinstance(reverse, list):
+            response += (
+                f"\n\nLink expansion: "
+                f"{len(forward) if isinstance(forward, list) else 0} forward relation(s), "
+                f"{len(reverse) if isinstance(reverse, list) else 0} reverse relation(s)."
+            )
+        return response
+
+    return "Linked master-data query completed."
 
 
 def _format_hierarchy_response(data: Any, arguments: Dict[str, Any]) -> str:
@@ -1011,6 +1099,18 @@ def _format_rank_personnel_response(
     """Format natural language response for personnel by rank"""
 
     rank_name = arguments.get("rank_name", "the specified rank")
+    rank_relation = str(arguments.get("rank_relation") or "exact").strip().lower()
+    relation_prefix_map = {
+        "above": "Above",
+        "below": "Below",
+        "at_or_above": "At or Above",
+        "at_or_below": "At or Below",
+    }
+    rank_label = (
+        f"{relation_prefix_map.get(rank_relation, 'Exact')} {rank_name} Rank"
+        if rank_relation in relation_prefix_map
+        else rank_name
+    )
     district = arguments.get("district_name", "")
     asks_detailed_view = any(
         token in query for token in [
@@ -1023,8 +1123,8 @@ def _format_rank_personnel_response(
     if isinstance(data, list):
         if len(data) == 0:
             if district:
-                return f"No {rank_name} personnel found in {district} district."
-            return f"No {rank_name} personnel found."
+                return f"No {rank_label} personnel found in {district} district."
+            return f"No {rank_label} personnel found."
 
         asks_earliest_dob = bool(
             re.search(r"\b(earliest|oldest)\b", query)
@@ -1077,7 +1177,7 @@ def _format_rank_personnel_response(
             return " ".join(parts)
 
         location = f" in {district} district" if district else ""
-        response = f"{rank_name} Personnel{location}:\n\n"
+        response = f"{rank_label} Personnel{location}:\n\n"
 
         # Show the complete current page returned by backend pagination.
         limit = len(data)
@@ -1087,13 +1187,13 @@ def _format_rank_personnel_response(
             badge = person.get("badgeNo", "N/A")
             mobile = person.get("mobile", "N/A")
             email = person.get("email", "N/A")
-            rank_label = person.get("rankName") or rank_name
+            person_rank = person.get("rankName") or rank_name
 
             if asks_detailed_view:
                 response += f"  {i}. {name}\n"
                 response += f"     - User ID: {user_id}\n"
                 response += f"     - Badge No: {badge}\n"
-                response += f"     - Rank: {rank_label}\n"
+                response += f"     - Rank: {person_rank}\n"
                 if person.get("districtName"):
                     response += f"     - District: {person.get('districtName')}\n"
                 if person.get("unitName"):
@@ -1112,7 +1212,7 @@ def _format_rank_personnel_response(
             if isinstance(pagination, dict) and pagination.get("total") is not None
             else len(data)
         )
-        response += f"\nTotal: {total_matches} {rank_name} personnel"
+        response += f"\nTotal: {total_matches} {rank_label} personnel"
         if isinstance(pagination, dict):
             page = int(pagination.get("page") or 1)
             page_size = int(pagination.get("page_size") or max(1, len(data)))

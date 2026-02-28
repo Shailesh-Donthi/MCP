@@ -39,6 +39,7 @@ from mcp.tools.search_tools import (
     SearchUnitTool,
     CheckResponsibleUserTool,
 )
+from mcp.tools.master_data_tools import QueryLinkedMasterDataTool
 
 logger = logging.getLogger(__name__)
 configure_logging()
@@ -114,6 +115,8 @@ TOOL_CLASSES: List[Type[BaseTool]] = [
     # Village mapping tools
     FindMissingVillageMappingsTool,
     GetVillageCoverageTool,
+    # Linked master-data tool
+    QueryLinkedMasterDataTool,
 ]
 
 

@@ -31,6 +31,14 @@ class AggregationBuilder:
         Collections.DEPARTMENT,
         Collections.UNIT_TYPE,
         Collections.ROLES,
+        Collections.ROLES_MASTER,
+        Collections.APPROVAL_FLOW_MASTER,
+        Collections.ERROR_MASTER,
+        Collections.LOG_MASTER,
+        Collections.MODULES_MASTER,
+        Collections.NOTIFICATION_MASTER,
+        Collections.PROMPT_MASTER,
+        Collections.VALUE_SETS_MASTER,
     }
 
     def __init__(self):

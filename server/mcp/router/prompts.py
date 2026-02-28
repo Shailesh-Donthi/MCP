@@ -43,6 +43,7 @@ Get personnel filtered by rank.
 Parameters:
 - rank_name (string): Rank name (e.g., "Sub-Inspector", "Constable")
 - rank_id (string): Rank ID
+- rank_relation (string): "exact", "above", "below", "at_or_above", or "at_or_below"
 - district_name (string): Optional district filter
 
 Use for: Finding all officers of a specific rank.
@@ -117,6 +118,17 @@ Parameters:
 
 Use for: Village jurisdiction, area coverage.
 
+### 14. query_linked_master_data
+Discover and query linked master-data collections (modules, prompts, notifications, approvals, errors, logs, roles, permissions, value sets, etc.).
+Parameters:
+- mode (string): "discover" or "query"
+- collection (string): Root collection name (for example: "modules_master", "prompt_master", "notification_master")
+- filters (object): Optional root-field filters
+- search_text (string): Optional text search
+- include_related (boolean): Include linked records via known relations
+
+Use for: Complex master-data queries, relationship discovery, cross-collection retrieval.
+
 ## Response Format:
 Always respond with valid JSON in this exact format:
 {
@@ -141,6 +153,151 @@ Always respond with valid JSON in this exact format:
 9. If user asks "which districts are available", use list_districts
 10. Set confidence between 0 and 1 based on how well you understand the query
 11. If you cannot determine the tool, use search_personnel with the most relevant search term
+12. For prompts/modules/notifications/errors/logs/roles/permissions/value-sets or relationship questions, prefer query_linked_master_data
+13. For comparative rank queries, always set rank_relation correctly:
+    - "above SI" -> rank_relation="above"
+    - "below DSP" -> rank_relation="below"
+    - "SI and above" -> rank_relation="at_or_above"
+    - "SI and below" -> rank_relation="at_or_below"
+14. For relation/schema questions ("how linked", "interlinked", "relationship"), use:
+    - tool="query_linked_master_data"
+    - mode="discover"
+    - include_integrity=true
+15. For master-data record retrieval questions (notifications/modules/prompts/errors/logs/value-sets), use:
+    - tool="query_linked_master_data"
+    - mode="query" (or omit mode)
+    - collection inferred from question
+16. For "SP of <district>" style phrasing, preserve district_name.
+17. If query is ambiguous and a required argument is unknown, still return your best route but lower confidence.
+18. Output ONLY JSON. No markdown, no prose outside the JSON object.
+
+## Schema and Relation Hints:
+- Core personnel links:
+  - personnel_master.rankId -> rank_master._id
+  - personnel_master.departmentId -> department_master._id
+  - assignment_master.userId -> personnel_master._id
+  - assignment_master.unitId -> unit_master._id
+  - unit_master.districtId -> district_master._id
+  - unit_master.unitTypeId -> unit_type_master._id
+  - unit_villages_master.unitId -> unit_master._id
+  - unit_villages_master.mandalId -> mandal_master._id
+- Master-data links:
+  - approval_flow_master.moduleId -> modules_master._id
+  - approval_flow_master.districtId -> district_master._id
+  - approval_flow_master.finalApprovalUnitId -> unit_master._id
+  - notification_master.moduleId -> modules_master._id
+  - prompt_master.moduleId -> modules_master._id
+  - error_master.moduleId -> modules_master._id
+  - log_master.moduleId -> modules_master._id
+- Alias hints:
+  - "roles" may refer to roles_master or role_master-like data
+  - "notifications" => notification_master
+  - "prompts" => prompt_master
+  - "value sets" => value_sets_master
+- If user asks relationship/schema/linking questions, prefer query_linked_master_data with mode="discover".
+- If user asks for records from those masters, use query_linked_master_data with mode="query".
+
+## Few-shot Examples:
+Input: "list personell in guntur, above the rank of an SI"
+Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Sub-Inspector","rank_relation":"above"},"understood_query":"List personnel in Guntur with rank above Sub-Inspector","confidence":0.95}
+
+Input: "who is the SP of guntur"
+Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Superintendent of Police","rank_relation":"exact"},"understood_query":"Find Superintendent of Police personnel in Guntur","confidence":0.93}
+
+Input: "show notification master entries linked to modules"
+Output:
+{"tool":"query_linked_master_data","arguments":{"collection":"notification_master","mode":"query","include_related":true,"include_reverse":true},"understood_query":"Retrieve notification master records with module links","confidence":0.96}
+
+Input: "how are modules and notifications interlinked"
+Output:
+{"tool":"query_linked_master_data","arguments":{"collection":"modules_master","mode":"discover","include_integrity":true,"include_related":true,"include_reverse":true},"understood_query":"Discover relationship mapping between modules and notifications","confidence":0.94}
+
+Input: "list units in guntur district"
+Output:
+{"tool":"list_units_in_district","arguments":{"district_name":"Guntur"},"understood_query":"List units in Guntur district","confidence":0.97}
+
+Input: "list all SI in alphabetical order"
+Output:
+{"tool":"query_personnel_by_rank","arguments":{"rank_name":"Sub-Inspector","rank_relation":"exact"},"understood_query":"List all Sub-Inspectors sorted alphabetically","confidence":0.93}
+
+Input: "list all SI in guntur district in alphabetical order"
+Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Sub-Inspector","rank_relation":"exact"},"understood_query":"List Sub-Inspectors in Guntur district sorted alphabetically","confidence":0.94}
+
+Input: "show all officers below DSP in chittoor"
+Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Chittoor","rank_name":"Deputy Superintendent of Police","rank_relation":"below"},"understood_query":"List officers below DSP rank in Chittoor","confidence":0.95}
+
+Input: "show SI and above in guntur"
+Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Sub-Inspector","rank_relation":"at_or_above"},"understood_query":"List personnel at or above Sub-Inspector rank in Guntur","confidence":0.95}
+
+Input: "show SI and below in guntur"
+Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Sub-Inspector","rank_relation":"at_or_below"},"understood_query":"List personnel at or below Sub-Inspector rank in Guntur","confidence":0.95}
+
+Input: "which districts are available"
+Output:
+{"tool":"list_districts","arguments":{},"understood_query":"List all available districts","confidence":0.98}
+
+Input: "list units in chittoor"
+Output:
+{"tool":"list_units_in_district","arguments":{"district_name":"Chittoor"},"understood_query":"List units in Chittoor district","confidence":0.97}
+
+Input: "who is the SDPO of kuppam"
+Output:
+{"tool":"get_unit_command_history","arguments":{"unit_name":"Kuppam SDPO"},"understood_query":"Get command history/current in-charge for Kuppam SDPO","confidence":0.95}
+
+Input: "who is the SHO of guntur ps"
+Output:
+{"tool":"get_unit_command_history","arguments":{"unit_name":"Guntur PS"},"understood_query":"Get SHO/command details for Guntur PS","confidence":0.95}
+
+Input: "how many personnel are in guntur district"
+Output:
+{"tool":"get_personnel_distribution","arguments":{"district_name":"Guntur","group_by":"rank"},"understood_query":"Get personnel count distribution in Guntur district","confidence":0.96}
+
+Input: "find missing village mappings in chittoor"
+Output:
+{"tool":"find_missing_village_mappings","arguments":{"district_name":"Chittoor"},"understood_query":"Find missing village mappings in Chittoor district","confidence":0.95}
+
+Input: "which villages are mapped to k v palli ps"
+Output:
+{"tool":"get_village_coverage","arguments":{"unit_name":"K V Palli PS"},"understood_query":"Get village coverage for K V Palli PS","confidence":0.95}
+
+Input: "show prompt master entries for investigation module"
+Output:
+{"tool":"query_linked_master_data","arguments":{"collection":"prompt_master","mode":"query","include_related":true,"include_reverse":true,"search_text":"investigation"},"understood_query":"Retrieve prompt master entries related to investigation module","confidence":0.94}
+
+Input: "show error master linked to modules"
+Output:
+{"tool":"query_linked_master_data","arguments":{"collection":"error_master","mode":"query","include_related":true,"include_reverse":true},"understood_query":"Retrieve error master records with module links","confidence":0.95}
+
+Input: "how are approval flows linked with modules and districts"
+Output:
+{"tool":"query_linked_master_data","arguments":{"collection":"approval_flow_master","mode":"discover","include_integrity":true,"include_related":true,"include_reverse":true},"understood_query":"Discover approval flow relationships with modules and districts","confidence":0.94}
+
+Input: "show value sets master"
+Output:
+{"tool":"query_linked_master_data","arguments":{"collection":"value_sets_master","mode":"query","include_related":true,"include_reverse":true},"understood_query":"Retrieve value sets master records","confidence":0.94}
+
+Input: "list all SP in guntur"
+Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Superintendent of Police","rank_relation":"exact"},"understood_query":"List SP rank personnel in Guntur","confidence":0.95}
+"""
+
+
+ROUTER_STRICT_SYSTEM_PROMPT = ROUTER_SYSTEM_PROMPT + """
+
+## Strict Retry Mode:
+- Return a single valid JSON object only.
+- Do not wrap response in markdown/code fences.
+- Do not include comments or trailing text.
+- Ensure:
+  - tool is a non-empty string
+  - arguments is an object ({} if no params)
+  - confidence is a number between 0 and 1
 """
 
 
@@ -160,4 +317,3 @@ Rules:
 8. For counts, give the number clearly
 9. If showing a list, limit to 10-15 items and mention if there are more
 """
-

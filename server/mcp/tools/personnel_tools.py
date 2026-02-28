@@ -618,6 +618,12 @@ class QueryPersonnelByRankTool(BaseTool):
                     "type": "string",
                     "description": "Rank name (if ID not known) - case insensitive",
                 },
+                "rank_relation": {
+                    "type": "string",
+                    "description": "Rank comparison mode relative to rank_name/rank_id",
+                    "enum": ["exact", "above", "below", "at_or_above", "at_or_below"],
+                    "default": "exact",
+                },
                 "district_id": {
                     "type": "string",
                     "description": "Filter by district ID",
@@ -660,12 +666,16 @@ class QueryPersonnelByRankTool(BaseTool):
     ) -> Dict[str, Any]:
         rank_id = arguments.get("rank_id")
         rank_name = arguments.get("rank_name")
+        rank_relation = str(arguments.get("rank_relation") or "exact").strip().lower()
         district_id = arguments.get("district_id")
         district_name = arguments.get("district_name")
         raw_district_names = arguments.get("district_names")
         group_by_unit = arguments.get("group_by_unit", False)
         include_inactive = arguments.get("include_inactive", False)
         page, page_size, skip = self.get_pagination_params(arguments)
+        allowed_relations = {"exact", "above", "below", "at_or_above", "at_or_below"}
+        if rank_relation not in allowed_relations:
+            rank_relation = "exact"
 
         district_names: List[str] = []
         if isinstance(raw_district_names, list):
@@ -695,6 +705,15 @@ class QueryPersonnelByRankTool(BaseTool):
                     {"hint": "Try a known rank like Circle Inspector, Sub Inspector, Head Constable, or Police Constable."},
                 )
 
+        relation_rank_ids: Optional[List[str]] = None
+        if rank_relation != "exact":
+            if not rank_id:
+                return self.format_error_response(
+                    "MISSING_PARAMETER",
+                    "rank_name or rank_id is required when using rank_relation",
+                )
+            relation_rank_ids = await self._resolve_rank_ids_by_relation(rank_id, rank_relation)
+
         # Resolve district_name to district_id if needed
         if not district_id and district_name:
             district_id = await self._resolve_district_name(district_name)
@@ -710,7 +729,11 @@ class QueryPersonnelByRankTool(BaseTool):
         # Multi-district rank query (e.g., "Circle Inspectors in Guntur and Chittoor")
         if district_names and len(district_names) >= 2:
             return await self._execute_multi_district_flat(
-                base_query=self._build_personnel_base_query(include_inactive, rank_id),
+                base_query=self._build_personnel_base_query(
+                    include_inactive,
+                    rank_id if rank_relation == "exact" else None,
+                    relation_rank_ids,
+                ),
                 rank_id=rank_id,
                 district_names=district_names,
                 context=context,
@@ -723,7 +746,11 @@ class QueryPersonnelByRankTool(BaseTool):
         unit_ids = await self._get_effective_unit_ids(context, district_id)
 
         # Build base query on personnel records
-        base_query = self._build_personnel_base_query(include_inactive, rank_id)
+        base_query = self._build_personnel_base_query(
+            include_inactive,
+            rank_id if rank_relation == "exact" else None,
+            relation_rank_ids,
+        )
 
         # If unit scoping is required (district filter and/or non-state context),
         # use assignment_master mapping instead of personnel.units.
@@ -758,11 +785,17 @@ class QueryPersonnelByRankTool(BaseTool):
         self,
         include_inactive: bool,
         rank_id: Optional[str],
+        rank_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         base_query: Dict[str, Any] = {"isDelete": False}
         if not include_inactive:
             base_query["isActive"] = True
-        if rank_id and ObjectId.is_valid(rank_id):
+        valid_rank_oids = [
+            ObjectId(rid) for rid in (rank_ids or []) if isinstance(rid, str) and ObjectId.is_valid(rid)
+        ]
+        if valid_rank_oids:
+            base_query["rankId"] = {"$in": valid_rank_oids}
+        elif rank_id and ObjectId.is_valid(rank_id):
             base_query["rankId"] = ObjectId(rank_id)
         return base_query
 
@@ -891,6 +924,42 @@ class QueryPersonnelByRankTool(BaseTool):
             }
         )
         return str(district["_id"]) if district else None
+
+    async def _resolve_rank_ids_by_relation(
+        self,
+        anchor_rank_id: str,
+        relation: str,
+    ) -> List[str]:
+        """Resolve rank IDs using rank_master.level relation against an anchor rank."""
+        if not ObjectId.is_valid(anchor_rank_id):
+            return []
+        anchor = await self.db[Collections.RANK_MASTER].find_one(
+            {"_id": ObjectId(anchor_rank_id), "isDelete": False},
+            {"_id": 1, "level": 1},
+        )
+        if not anchor:
+            return []
+        anchor_level = anchor.get("level")
+        if not isinstance(anchor_level, (int, float)):
+            return []
+
+        if relation == "above":
+            level_clause: Dict[str, Any] = {"$lt": anchor_level}
+        elif relation == "below":
+            level_clause = {"$gt": anchor_level}
+        elif relation == "at_or_above":
+            level_clause = {"$lte": anchor_level}
+        elif relation == "at_or_below":
+            level_clause = {"$gte": anchor_level}
+        else:
+            return [anchor_rank_id]
+
+        cursor = self.db[Collections.RANK_MASTER].find(
+            {"isDelete": False, "level": level_clause},
+            {"_id": 1},
+        )
+        rows = await cursor.to_list(length=None)
+        return [str(row["_id"]) for row in rows]
 
     async def _get_units_in_district(self, district_id: str) -> List[ObjectId]:
         """Get all unit IDs in a district"""

@@ -18,6 +18,7 @@ from mcp.router.extractors import (
     is_followup_district_query,
     format_followup_district_response,
 )
+from mcp.tools.master_data_tools import infer_master_collection_from_query
 
 
 def repair_route(
@@ -127,7 +128,54 @@ def repair_route(
             return True
         return False
 
+    def _looks_like_sort_phrase(value: Optional[str]) -> bool:
+        v = (value or "").strip()
+        if not v:
+            return False
+        return bool(
+            re.search(
+                r"\b(alphabetical|alphabetic|ascending|descending|sorted?|order|a-z|z-a|asc|desc)\b",
+                v,
+                re.IGNORECASE,
+            )
+        )
+
+    def _extract_rank_relation(text: str) -> str:
+        q = (text or "").lower()
+        if re.search(r"\b(at\s*least|at\s*or\s*above|or\s*above|not\s+below)\b", q):
+            return "at_or_above"
+        if re.search(r"\b(at\s*most|at\s*or\s*below|or\s*below|not\s+above)\b", q):
+            return "at_or_below"
+        if re.search(r"\b(above|higher\s+than|senior\s+to|greater\s+than)\b", q):
+            return "above"
+        if re.search(r"\b(below|lower\s+than|junior\s+to|less\s+than)\b", q):
+            return "below"
+        return "exact"
+
     query_lower = (query or "").lower()
+    master_collection = infer_master_collection_from_query(query or "")
+    asks_master_relations = bool(
+        re.search(
+            r"\b(interlinked?|relation(ship)?|dependency|dependencies|schema|map\s+between|master\s+data|how\s+.*\s+linked)\b",
+            query_lower,
+        )
+    )
+    if master_collection and (
+        asks_master_relations
+        or re.search(
+            r"\b(approval|module|notification|prompt|permissions?|roles?|value\s*set|error|log)\b",
+            query_lower,
+        )
+    ):
+        args_master: Dict[str, Any] = {
+            "collection": master_collection,
+            "include_related": True,
+            "include_reverse": True,
+        }
+        if asks_master_relations:
+            args_master["mode"] = "discover"
+            args_master["include_integrity"] = True
+        return "query_linked_master_data", args_master
     # Only merge previous-turn text for explicit follow-up phrasing. Merging on
     # every new query causes context leakage like "spdo of kuppam" influencing
     # a later standalone query "personell distribution".
@@ -148,6 +196,9 @@ def repair_route(
     if not place_hints and merged != query:
         place_hints = extract_place_hints(merged)
     place = place_hints[0] if place_hints else (extract_place_hint(query) or extract_place_hint(merged))
+    place_hints = [p for p in place_hints if not _looks_like_sort_phrase(p)]
+    if place and _looks_like_sort_phrase(place):
+        place = None
     hierarchy_place_hint = _extract_hierarchy_place(query) or _extract_hierarchy_place(merged)
     if not place and hierarchy_place_hint:
         place = hierarchy_place_hint
@@ -159,6 +210,7 @@ def repair_route(
         rank_hints = extract_rank_hints(merged)
     rank_in_query = rank_hints[0] if rank_hints else extract_rank_hint(query)
     rank_name = rank_hints[0] if rank_hints else (rank_in_query or extract_rank_hint(merged))
+    rank_relation = _extract_rank_relation(query)
     user_id_hint = extract_user_id_hint(query)
     mobile_hint = extract_mobile_hint(query)
     person_hint = extract_person_hint(query)
@@ -330,6 +382,8 @@ def repair_route(
 
     if asks_rank_detail_listing:
         rank_args: Dict[str, Any] = {"rank_name": rank_name}
+        if rank_relation != "exact":
+            rank_args["rank_relation"] = rank_relation
         if len(place_hints) >= 2:
             rank_args["district_names"] = place_hints[:4]
         elif place:
@@ -466,6 +520,8 @@ def repair_route(
     ):
         if rank_name:
             rank_args: Dict[str, Any] = {"rank_name": rank_name}
+            if rank_relation != "exact":
+                rank_args["rank_relation"] = rank_relation
             if len(place_hints) >= 2:
                 rank_args["district_names"] = place_hints[:4]
             else:
@@ -480,6 +536,8 @@ def repair_route(
         fixed_args = {}
         if rank_name or arguments.get("rank_name"):
             fixed_args["rank_name"] = rank_name or arguments.get("rank_name")
+        if rank_relation != "exact":
+            fixed_args["rank_relation"] = rank_relation
         if len(place_hints) >= 2:
             fixed_args["district_names"] = place_hints[:4]
         elif not fixed_args.get("district_name") and place:
@@ -549,8 +607,12 @@ def repair_route(
             return "get_personnel_distribution", {"district_name": place, "group_by": "rank"}
 
     if tool_name == "query_personnel_by_rank":
+        if _looks_like_sort_phrase(str(fixed_args.get("district_name") or "")):
+            fixed_args.pop("district_name", None)
         if not fixed_args.get("rank_name") and rank_name:
             fixed_args["rank_name"] = rank_name
+        if rank_relation != "exact" and not fixed_args.get("rank_relation"):
+            fixed_args["rank_relation"] = rank_relation
         if not fixed_args.get("district_names") and len(place_hints) >= 2:
             fixed_args["district_names"] = place_hints[:4]
         if not fixed_args.get("district_name") and not fixed_args.get("district_names") and place:

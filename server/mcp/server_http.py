@@ -311,7 +311,7 @@ def _build_error_detail(
 def _build_capability_help_response_text() -> str:
     """Human-readable help text for capability/report prompts."""
     return (
-        "I can help with police personnel and unit reporting queries. Try asking:\n\n"
+        "I can help with police personnel, unit reporting, and linked master-data queries. Try asking:\n\n"
         "- Personnel search: 'What is the mobile number of A Ashok Kumar?'\n"
         "- Personnel by rank/district: 'List all SIs in Chittoor district'\n"
         "- Personnel distribution: 'How many personnel are in Guntur district?'\n"
@@ -319,6 +319,7 @@ def _build_capability_help_response_text() -> str:
         "- Units in district: 'List units in Guntur district'\n"
         "- Village mapping: 'Which villages are mapped to K V Palli PS?'\n"
         "- Transfers: 'Show recent transfers in the last 30 days'\n"
+        "- Master-data links: 'Show notification master entries linked to modules'\n"
         "- Command/in-charge fallback: 'Who is the SDPO of Kuppam?'\n\n"
         "You can also ask follow-ups like 'next page', 'previous page', or 'show details of the 1st one' after list results."
     )
@@ -802,9 +803,17 @@ async def test_database_permissions(
         ("unit_master", Collections.UNIT),
         ("district_master", Collections.DISTRICT),
         ("rank_master", Collections.RANK_MASTER),
+        ("department_master", Collections.DEPARTMENT),
         ("unit_villages_master", Collections.UNIT_VILLAGES),
         ("unit_type_master", Collections.UNIT_TYPE),
         ("mandal_master", Collections.MANDAL),
+        ("approval_flow_master", Collections.APPROVAL_FLOW_MASTER),
+        ("error_master", Collections.ERROR_MASTER),
+        ("log_master", Collections.LOG_MASTER),
+        ("modules_master", Collections.MODULES_MASTER),
+        ("notification_master", Collections.NOTIFICATION_MASTER),
+        ("prompt_master", Collections.PROMPT_MASTER),
+        ("value_sets_master", Collections.VALUE_SETS_MASTER),
     ]
 
     results = {}
@@ -1176,6 +1185,10 @@ TOOL_KEYWORDS = {
     "get_unit_command_history": ["command", "history", "commander", "sho", "in charge"],
     "find_missing_village_mappings": ["village", "mapping", "missing", "coverage", "unmapped"],
     "get_village_coverage": ["village coverage", "jurisdiction", "area covered"],
+    "query_linked_master_data": [
+        "approval flow", "modules", "module", "notification", "prompt", "value set",
+        "master data", "roles", "permissions", "error master", "log master",
+    ],
 }
 
 
@@ -1188,10 +1201,39 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
     query_lower = query.lower().strip()
 
     # Use hint if provided
-    if hint and hint in TOOL_KEYWORDS:
+    if hint and hint in TOOL_KEYWORDS and hint != "query_linked_master_data":
         return hint, {}
 
     args = {}
+
+    def extract_master_collection(q: str) -> Optional[str]:
+        ql = (q or "").lower()
+        mapping = [
+            (r"\bapproval\s*flow|approval\s*chain\b", "approval_flow_master"),
+            (r"\bdepartment\s*master\b", "department_master"),
+            (r"\bdistrict\s*master\b", "district_master"),
+            (r"\berror(s)?\b", "error_master"),
+            (r"\bjobs?\s*master\b", "jobs_master"),
+            (r"\blog(s)?\s*master\b", "log_master"),
+            (r"\bmandal\s*master\b", "mandal_master"),
+            (r"\bnotification(s)?\b", "notification_master"),
+            (r"\bmodules?\b", "modules_master"),
+            (r"\bpermissions?\b", "permissions_master"),
+            (r"\bpermission\s*mapping\b", "permissions_mapping_master"),
+            (r"\bprompts?\b", "prompt_master"),
+            (r"\brank\s*master\b", "rank_master"),
+            (r"\broles?\b", "roles_master"),
+            (r"\bunit\s*type\s*master\b", "unit_type_master"),
+            (r"\bunit\s*master\b", "unit_master"),
+            (r"\bunit\s*villages?\s*master\b", "unit_villages_master"),
+            (r"\buser\s*role\s*permissions?\b", "user_role_permissions_master"),
+            (r"\bvalue\s*sets?\b", "value_sets_master"),
+            (r"\bpersonnel\s*master\b", "personnel_master"),
+        ]
+        for pattern, collection in mapping:
+            if re.search(pattern, ql, re.IGNORECASE):
+                return collection
+        return None
 
     # Ordinal follow-up parser for queries like "info on 1st".
     def extract_ordinal_index(q):
@@ -1209,6 +1251,15 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
 
     # Helper to extract district name from query
     def extract_district(q):
+        def _looks_like_sort_phrase(value: str) -> bool:
+            return bool(
+                re.search(
+                    r"\b(alphabetical|alphabetic|ascending|descending|sorted?|order|a-z|z-a|asc|desc)\b",
+                    value or "",
+                    re.IGNORECASE,
+                )
+            )
+
         patterns = [
             r"(?:in|for|of|at|on)\s+([A-Za-z\s]+?)\s+(?:district|dist\.?)",
             r"([A-Za-z]+)\s+(?:district|dist\.?)",
@@ -1220,6 +1271,8 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
                 name = m.group(1).strip().title()
                 # Remove "District"/"Dist" if accidentally included
                 name = re.sub(r'\s*(?:District|Dist\.?)\s*$', '', name, flags=re.IGNORECASE).strip()
+                if _looks_like_sort_phrase(name):
+                    continue
                 return name
 
         # Rank-context fallback for phrasing like "who is the SP of guntur".
@@ -1247,7 +1300,7 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
                     r"\b(ps|police\s+station|station|sdpo|spdo|dpo|range|circle|wing|unit)\b",
                     candidate,
                     re.IGNORECASE,
-                ):
+                ) and not _looks_like_sort_phrase(candidate):
                     return candidate.title()
         return None
 
@@ -1327,6 +1380,18 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
                 return rank
         return None
 
+    def extract_rank_relation(q):
+        ql = (q or "").lower()
+        if re.search(r"\b(at\s*least|at\s*or\s*above|or\s*above|not\s+below)\b", ql):
+            return "at_or_above"
+        if re.search(r"\b(at\s*most|at\s*or\s*below|or\s*below|not\s+above)\b", ql):
+            return "at_or_below"
+        if re.search(r"\b(above|higher\s+than|senior\s+to|greater\s+than)\b", ql):
+            return "above"
+        if re.search(r"\b(below|lower\s+than|junior\s+to|less\s+than)\b", ql):
+            return "below"
+        return "exact"
+
     # PRIORITY -1: ordinal follow-up (requires previous assistant list text in hint)
     if re.search(r"\b(info|information|details?|contact|email|mobile|phone)\b", query_lower):
         idx = extract_ordinal_index(query)
@@ -1352,6 +1417,25 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
         query_lower,
     ):
         return "__help__", {}
+
+    # ==========================================================================
+    # PRIORITY 0c: Linked master-data queries
+    # ==========================================================================
+    asks_relations = bool(
+        re.search(
+            r"\b(interlinked?|relation(ship)?|dependency|dependencies|schema|map\s+between|how\s+.*\s+linked)\b",
+            query_lower,
+        )
+    )
+    master_collection = extract_master_collection(query)
+    if master_collection:
+        args["collection"] = master_collection
+        args["include_related"] = True
+        args["include_reverse"] = True
+        if asks_relations:
+            args["mode"] = "discover"
+            args["include_integrity"] = True
+        return "query_linked_master_data", args
 
     # ==========================================================================
     # PRIORITY 1: Missing village mapping queries
@@ -1523,6 +1607,9 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
         if district:
             args["district_name"] = district
         args["rank_name"] = rank_name
+        rank_relation = extract_rank_relation(query)
+        if rank_relation != "exact":
+            args["rank_relation"] = rank_relation
         return "query_personnel_by_rank", args
 
     if re.search(r"(?:personnel|personell|officers?|staff|people)\s+(?:in|at|under|of)|(?:who|list|show)\s+(?:is|are|all)\s+(?:in|at|the)", query_lower):
@@ -1536,6 +1623,9 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
         rank_name = extract_rank(query)
         if rank_name:
             args["rank_name"] = rank_name
+            rank_relation = extract_rank_relation(query)
+            if rank_relation != "exact":
+                args["rank_relation"] = rank_relation
             return "query_personnel_by_rank", args
         # query_personnel_by_unit requires unit_id/unit_name; district-only phrasing
         # should fall back to a district-level personnel overview to avoid contract mismatch.
@@ -1553,6 +1643,9 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
         rank_name = extract_rank(query)
         if rank_name:
             args["rank_name"] = rank_name
+        rank_relation = extract_rank_relation(query)
+        if rank_relation != "exact":
+            args["rank_relation"] = rank_relation
         return "query_personnel_by_rank", args
 
     # ==========================================================================
@@ -1736,8 +1829,40 @@ async def natural_language_query(
                 "output": output_payload,
             }
 
-        # Route query to tool
-        tool_name, extracted_args = route_query_to_tool(request.query, route_hint)
+        # Route query to tool (LLM-first when available).
+        route_mode = "rule_based"
+        route_confidence: Optional[float] = None
+        route_source: Optional[str] = None
+        understood_query: Optional[str] = None
+
+        if request.tool_hint and request.tool_hint in TOOL_KEYWORDS:
+            tool_name, extracted_args = request.tool_hint, {}
+            route_mode = "explicit_hint"
+        else:
+            from mcp.router.llm_client import has_llm_api_key
+            use_llm_router = has_llm_api_key()
+            if use_llm_router:
+                from mcp.llm_router import llm_route_query
+
+                llm_context: List[Dict[str, str]] = []
+                if isinstance(history_hint, str) and history_hint.strip():
+                    llm_context.append({"role": "assistant", "content": history_hint})
+
+                (
+                    tool_name,
+                    extracted_args,
+                    understood_query,
+                    route_confidence,
+                    route_source,
+                ) = await llm_route_query(
+                    request.query,
+                    llm_context or None,
+                )
+                route_mode = route_source or "llm"
+            else:
+                tool_name, extracted_args = route_query_to_tool(request.query, route_hint)
+                route_mode = "rule_based"
+
         tool_name, extracted_args = repair_route(
             query=request.query,
             tool_name=tool_name,
@@ -1754,7 +1879,12 @@ async def natural_language_query(
             query=request.query,
             tool_name=tool_name,
             arguments=extracted_args,
-            metadata={"routing_mode": "rule_based"},
+            metadata={
+                "routing_mode": route_mode,
+                "route_source": route_source,
+                "route_confidence": route_confidence,
+                "understood_query": understood_query,
+            },
         )
 
         if tool_name == "__help__":

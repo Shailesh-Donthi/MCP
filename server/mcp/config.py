@@ -29,8 +29,11 @@ class MCPSettings(BaseSettings):
 
     # Allowed collections for queries (whitelist)
     MCP_ALLOWED_COLLECTIONS: str = (
-        "personnel_master,unit_master,rank_master,district_master,"
-        "unit_villages_master,mandal_master,designation_master"
+        "approval_flow_master,department_master,district_master,error_master,"
+        "jobs_master,log_master,mandal_master,modules_master,notification_master,"
+        "permissions_master,permissions_mapping_master,personnel_master,prompt_master,"
+        "rank_master,roles_master,unit_master,unit_type_master,unit_villages_master,"
+        "user_role_permissions_master,value_sets_master,designation_master,assignment_master"
     )
 
     @property

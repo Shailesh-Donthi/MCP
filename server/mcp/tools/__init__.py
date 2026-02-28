@@ -14,6 +14,7 @@ from mcp.tools.vacancy_tools import CountVacanciesByUnitRankTool, GetPersonnelDi
 from mcp.tools.transfer_tools import QueryRecentTransfersTool, GetUnitCommandHistoryTool
 from mcp.tools.village_mapping_tools import FindMissingVillageMappingsTool, GetVillageCoverageTool
 from mcp.tools.search_tools import SearchPersonnelTool, SearchUnitTool, CheckResponsibleUserTool
+from mcp.tools.master_data_tools import QueryLinkedMasterDataTool
 
 __all__ = [
     "BaseTool",
@@ -37,5 +38,7 @@ __all__ = [
     "SearchPersonnelTool",
     "SearchUnitTool",
     "CheckResponsibleUserTool",
+    # Master data graph tool
+    "QueryLinkedMasterDataTool",
 ]
 

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from collections import OrderedDict, deque
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -9,6 +10,7 @@ from mcp.handlers.tool_handler import get_tool_handler
 from mcp.utils.output_layer import build_output_payload
 from mcp.router import (
     ROUTER_SYSTEM_PROMPT,
+    ROUTER_STRICT_SYSTEM_PROMPT,
     RESPONSE_FORMATTER_PROMPT,
     call_claude_api,
     call_openai_api,
@@ -32,6 +34,80 @@ from mcp.router.extractors import (
 
 logger = logging.getLogger(__name__)
 
+_ROUTE_TOOLS_REQUIRING_NONEMPTY_ARGS = {
+    "search_personnel",
+    "search_unit",
+    "query_personnel_by_unit",
+    "query_personnel_by_rank",
+    "list_units_in_district",
+    "get_unit_hierarchy",
+    "count_vacancies_by_unit_rank",
+    "query_recent_transfers",
+    "get_unit_command_history",
+    "get_village_coverage",
+    "query_linked_master_data",
+}
+
+
+def _has_nonempty_args(arguments: Dict[str, Any]) -> bool:
+    for value in arguments.values():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        if isinstance(value, (list, dict)) and len(value) == 0:
+            continue
+        return True
+    return False
+
+
+def _parse_route_response(
+    response: Optional[str],
+    query: str,
+) -> Optional[Tuple[str, Dict[str, Any], str, float]]:
+    if not response or not str(response).strip():
+        return None
+
+    json_match = re.search(r"\{[\s\S]*\}", response)
+    if not json_match:
+        return None
+
+    try:
+        result = json.loads(json_match.group())
+    except json.JSONDecodeError as exc:
+        logger.error("Failed to parse LLM router response JSON: %s", exc)
+        return None
+
+    if not isinstance(result, dict):
+        return None
+
+    tool = result.get("tool")
+    if not isinstance(tool, str) or not tool.strip():
+        return None
+    tool = tool.strip()
+
+    arguments = result.get("arguments", {})
+    if arguments is None:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        return None
+
+    if tool in _ROUTE_TOOLS_REQUIRING_NONEMPTY_ARGS and not _has_nonempty_args(arguments):
+        return None
+
+    understood_query = result.get("understood_query")
+    if not isinstance(understood_query, str) or not understood_query.strip():
+        understood_query = query
+
+    confidence_raw = result.get("confidence", 0.5)
+    try:
+        confidence = float(confidence_raw)
+    except (TypeError, ValueError):
+        confidence = 0.5
+    confidence = max(0.0, min(1.0, confidence))
+
+    return tool, arguments, understood_query, confidence
+
 
 async def llm_route_query(
     query: str,
@@ -45,24 +121,23 @@ async def llm_route_query(
     response = await call_claude_api(messages, ROUTER_SYSTEM_PROMPT)
     if not response:
         response = await call_openai_api(messages, ROUTER_SYSTEM_PROMPT)
-    if not response:
-        logger.warning("LLM routing failed, using fallback")
-        tool, args, understood_query, confidence = fallback_route_query(query)
-        return tool, args, understood_query, confidence, "heuristic_fallback"
 
-    try:
-        json_match = __import__("re").search(r"\{[\s\S]*\}", response)
-        if json_match:
-            result = json.loads(json_match.group())
-            return (
-                result.get("tool", "search_personnel"),
-                result.get("arguments", {}),
-                result.get("understood_query", query),
-                result.get("confidence", 0.5),
-                "llm",
-            )
-    except json.JSONDecodeError as exc:
-        logger.error(f"Failed to parse LLM response: {exc}")
+    parsed = _parse_route_response(response, query)
+    if parsed:
+        tool, args, understood_query, confidence = parsed
+        return tool, args, understood_query, confidence, "llm"
+
+    # Retry once with stricter output instructions and no conversation context.
+    strict_messages = [{"role": "user", "content": query}]
+    retry_response = await call_claude_api(strict_messages, ROUTER_STRICT_SYSTEM_PROMPT)
+    if not retry_response:
+        retry_response = await call_openai_api(strict_messages, ROUTER_STRICT_SYSTEM_PROMPT)
+    retry_parsed = _parse_route_response(retry_response, query)
+    if retry_parsed:
+        tool, args, understood_query, confidence = retry_parsed
+        return tool, args, understood_query, confidence, "llm_retry_no_context"
+
+    logger.warning("LLM routing invalid/empty after retry, using fallback")
 
     tool, args, understood_query, confidence = fallback_route_query(query)
     return tool, args, understood_query, confidence, "heuristic_fallback"
@@ -118,12 +193,13 @@ def fallback_format_response(
 
 def _capability_help_response_text() -> str:
     return (
-        "I can help with police personnel and unit reporting queries. Try asking:\n\n"
+        "I can help with police personnel, unit reporting, and linked master-data queries. Try asking:\n\n"
         "- 'What is the mobile number of A Ashok Kumar?'\n"
         "- 'List all SIs in Chittoor district'\n"
         "- 'How many personnel are in Guntur district?'\n"
         "- 'What is the unit hierarchy for Chittoor district?'\n"
         "- 'List units in Guntur district'\n"
+        "- 'Show notification master entries linked to modules'\n"
         "- 'Which villages are mapped to K V Palli PS?'\n"
         "- 'Show recent transfers in the last 30 days'\n"
         "- 'Who is the SDPO of Kuppam?'\n\n"
@@ -156,6 +232,7 @@ class IntelligentQueryHandler:
             "query_personnel_by_rank",
             "get_unit_command_history",
             "get_unit_hierarchy",
+            "query_linked_master_data",
         }
 
     def _ensure_session_slot(self, session_id: str) -> None:
