@@ -27,6 +27,8 @@ def repair_route(
     last_user_query: Optional[str] = None,
     last_assistant_response: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
+    hierarchy_intent_pattern = r"\b(?:hierarchy|heirarchy|hierachy|structure|tree|organization)\b"
+
     def _extract_bare_info_subject(text: str) -> Optional[str]:
         if not text:
             return None
@@ -93,6 +95,28 @@ def repair_route(
                 return candidate
         return None
 
+    def _extract_hierarchy_place(text: str) -> Optional[str]:
+        if not text:
+            return None
+        patterns = [
+            rf"{hierarchy_intent_pattern}\s+(?:of|for|in)\s+([A-Za-z][A-Za-z0-9\s\.\-']{{1,80}})",
+            rf"{hierarchy_intent_pattern}\s*[:\-]\s*([A-Za-z][A-Za-z0-9\s\.\-']{{1,80}})",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if not m:
+                continue
+            value = m.group(1)
+            value = re.split(r"[,\?\.;]", value, maxsplit=1)[0]
+            value = re.sub(r"\b(?:district|dist\.?)\b", "", value, flags=re.IGNORECASE)
+            value = re.sub(r"\s+", " ", value).strip(" -")
+            if not value:
+                continue
+            if re.search(r"\b(personnel|personell|officers?|staff|people|unit|units)\b", value, re.IGNORECASE):
+                continue
+            return value.title()
+        return None
+
     def _looks_like_bad_unit_hint(value: Optional[str]) -> bool:
         v = (value or "").strip()
         if not v:
@@ -124,6 +148,11 @@ def repair_route(
     if not place_hints and merged != query:
         place_hints = extract_place_hints(merged)
     place = place_hints[0] if place_hints else (extract_place_hint(query) or extract_place_hint(merged))
+    hierarchy_place_hint = _extract_hierarchy_place(query) or _extract_hierarchy_place(merged)
+    if not place and hierarchy_place_hint:
+        place = hierarchy_place_hint
+    if hierarchy_place_hint and hierarchy_place_hint not in place_hints:
+        place_hints = [hierarchy_place_hint, *place_hints][:4]
     unit_hint = extract_unit_hint(query) or extract_unit_hint(merged)
     rank_hints = extract_rank_hints(query)
     if not rank_hints and merged != query:
@@ -238,7 +267,7 @@ def repair_route(
 
     # Prefer unit hierarchy early for typo variants like "heirarchy of chittoor district"
     # before other generic "details/about" or list-style heuristics can interfere.
-    if re.search(r"\b(?:hierarchy|heirarchy|structure|tree|organization)\b", query_lower) and not re.search(
+    if re.search(hierarchy_intent_pattern, query_lower) and not re.search(
         r"\b(personnel|officers?|staff)\b", query_lower
     ):
         reporting_to = re.search(
@@ -458,7 +487,7 @@ def repair_route(
         return fixed_tool, fixed_args
 
     # Unit hierarchy misspelling support: "heirarchy of chittoor district"
-    if re.search(r"\b(?:hierarchy|heirarchy|structure|tree|organization)\b", query_lower) and not re.search(
+    if re.search(hierarchy_intent_pattern, query_lower) and not re.search(
         r"\b(personnel|officers?|staff)\b", query_lower
     ):
         hierarchy_args: Dict[str, Any] = {}
@@ -488,7 +517,7 @@ def repair_route(
         elif unit_hint:
             fixed_args["root_unit_name"] = unit_hint
 
-    if ("personnel" in query_lower and ("hierarchy" in query_lower or "heirarchy" in query_lower)):
+    if ("personnel" in query_lower and re.search(hierarchy_intent_pattern, query_lower)):
         fixed_args = {"group_by": "rank"}
         if place:
             fixed_args["district_name"] = place

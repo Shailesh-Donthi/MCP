@@ -399,7 +399,7 @@ class GetPersonnelDistributionTool(BaseTool):
         elif group_by == "unit_type":
             return await self._group_by_unit_type(query, district_id)
         elif group_by == "district":
-            return await self._group_by_district(query)
+            return await self._group_by_district(query, district_id)
         else:
             return self.format_error_response(
                 "INVALID_PARAMETER",
@@ -649,8 +649,71 @@ class GetPersonnelDistributionTool(BaseTool):
             metadata={"district_id": district_id},
         )
 
-    async def _group_by_district(self, query: dict) -> Dict[str, Any]:
-        """Group personnel by district"""
+    async def _group_by_district(
+        self,
+        query: dict,
+        district_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Group personnel by district with dataset-shape fallbacks."""
+
+        def _extract_unit_scope_ids(person_query: Dict[str, Any]) -> List[ObjectId]:
+            """Best-effort extraction of scoped unit IDs from personnel query."""
+            scoped_ids: List[ObjectId] = []
+            seen: set[str] = set()
+
+            def _collect(node: Any) -> None:
+                if not isinstance(node, dict):
+                    return
+                candidate = node.get("units.unitId")
+                if isinstance(candidate, dict):
+                    in_values = candidate.get("$in")
+                    if isinstance(in_values, list):
+                        for value in in_values:
+                            if isinstance(value, ObjectId):
+                                key = str(value)
+                                if key not in seen:
+                                    seen.add(key)
+                                    scoped_ids.append(value)
+                and_list = node.get("$and")
+                if isinstance(and_list, list):
+                    for part in and_list:
+                        _collect(part)
+
+            _collect(person_query)
+            return scoped_ids
+
+        def _district_lookup_tail() -> List[Dict[str, Any]]:
+            return [
+                {"$match": {"_id": {"$ne": None}}},
+                {
+                    "$lookup": {
+                        "from": Collections.DISTRICT,
+                        "localField": "_id",
+                        "foreignField": "_id",
+                        "as": "districtData",
+                    }
+                },
+                {
+                    "$unwind": {
+                        "path": "$districtData",
+                        "preserveNullAndEmptyArrays": True,
+                    }
+                },
+                {
+                    "$project": {
+                        "districtId": {"$toString": "$_id"},
+                        "districtName": "$districtData.name",
+                        "count": 1,
+                        "_id": 0,
+                    }
+                },
+                {"$sort": {"count": -1}},
+            ]
+
+        unit_scope_ids = _extract_unit_scope_ids(query)
+        district_oid = ObjectId(district_id) if district_id and ObjectId.is_valid(district_id) else None
+
+        # Primary path: legacy personnel.units shape.
         pipeline = [
             {"$match": query},
             {"$unwind": "$units"},
@@ -664,34 +727,59 @@ class GetPersonnelDistributionTool(BaseTool):
             },
             {"$unwind": "$unitData"},
             {"$group": {"_id": "$unitData.districtId", "count": {"$sum": 1}}},
-            {
-                "$lookup": {
-                    "from": Collections.DISTRICT,
-                    "localField": "_id",
-                    "foreignField": "_id",
-                    "as": "districtData",
-                }
-            },
-            {
-                "$unwind": {
-                    "path": "$districtData",
-                    "preserveNullAndEmptyArrays": True,
-                }
-            },
-            {
-                "$project": {
-                    "districtId": {"$toString": "$_id"},
-                    "districtName": "$districtData.name",
-                    "count": 1,
-                    "_id": 0,
-                }
-            },
-            {"$sort": {"count": -1}},
+            *_district_lookup_tail(),
         ]
 
         results = await self.db[Collections.PERSONNEL_MASTER].aggregate(
             pipeline
         ).to_list(length=None)
+
+        # Fallback 1: unit_master.unitPersonnelList (common in current dataset).
+        if not results:
+            unit_match: Dict[str, Any] = {"isDelete": False}
+            if district_oid:
+                unit_match["districtId"] = district_oid
+            if unit_scope_ids:
+                unit_match["_id"] = {"$in": unit_scope_ids}
+
+            roster_pipeline = [
+                {"$match": unit_match},
+                {"$unwind": "$unitPersonnelList"},
+                {"$match": {"unitPersonnelList.userId": {"$ne": None}}},
+                {"$group": {"_id": {"districtId": "$districtId", "userId": "$unitPersonnelList.userId"}}},
+                {"$group": {"_id": "$_id.districtId", "count": {"$sum": 1}}},
+                *_district_lookup_tail(),
+            ]
+            results = await self.db[Collections.UNIT].aggregate(roster_pipeline).to_list(length=None)
+
+        # Fallback 2: assignment_master mapping.
+        if not results:
+            assignment_match: Dict[str, Any] = {"isDelete": False, "isActive": True}
+            if unit_scope_ids:
+                assignment_match["unitId"] = {"$in": unit_scope_ids}
+
+            assignment_pipeline: List[Dict[str, Any]] = [
+                {"$match": assignment_match},
+                {
+                    "$lookup": {
+                        "from": Collections.UNIT,
+                        "localField": "unitId",
+                        "foreignField": "_id",
+                        "as": "unitData",
+                    }
+                },
+                {"$unwind": "$unitData"},
+            ]
+            if district_oid:
+                assignment_pipeline.append({"$match": {"unitData.districtId": district_oid}})
+            assignment_pipeline.extend(
+                [
+                    {"$group": {"_id": {"districtId": "$unitData.districtId", "userId": "$userId"}}},
+                    {"$group": {"_id": "$_id.districtId", "count": {"$sum": 1}}},
+                    *_district_lookup_tail(),
+                ]
+            )
+            results = await self.db[Collections.ASSIGNMENT_MASTER].aggregate(assignment_pipeline).to_list(length=None)
 
         total = sum(r["count"] for r in results)
 

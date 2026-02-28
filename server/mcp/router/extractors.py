@@ -10,6 +10,7 @@ COMMON_QUERY_TYPO_MAP: Dict[str, str] = {
     "disctrict": "district",
     "disctricts": "districts",
     "heirarchy": "hierarchy",
+    "hierachy": "hierarchy",
     "villlage": "village",
     "whch": "which",
     "spdo": "sdpo",
