@@ -141,35 +141,21 @@ Always respond with valid JSON in this exact format:
   "confidence": 0.95
 }
 
-## Rules:
-1. Always extract names, places, ranks from the question
-2. For person-specific questions (email, DOB, rank of a person), use search_personnel
-3. For "how many" questions about personnel, consider the context
-4. If asking about vacancies/shortage, use count_vacancies_by_unit_rank
-5. If asking about transfers/postings, use query_recent_transfers
-6. For listing all officers of a rank, use query_personnel_by_rank
-7. For listing staff in a unit, use query_personnel_by_unit
-8. If district is mentioned with "units" or "stations", use list_units_in_district
-9. If user asks "which districts are available", use list_districts
-10. Set confidence between 0 and 1 based on how well you understand the query
-11. If you cannot determine the tool, use search_personnel with the most relevant search term
-12. For prompts/modules/notifications/errors/logs/roles/permissions/value-sets or relationship questions, prefer query_linked_master_data
-13. For comparative rank queries, always set rank_relation correctly:
-    - "above SI" -> rank_relation="above"
-    - "below DSP" -> rank_relation="below"
-    - "SI and above" -> rank_relation="at_or_above"
-    - "SI and below" -> rank_relation="at_or_below"
-14. For relation/schema questions ("how linked", "interlinked", "relationship"), use:
-    - tool="query_linked_master_data"
-    - mode="discover"
-    - include_integrity=true
-15. For master-data record retrieval questions (notifications/modules/prompts/errors/logs/value-sets), use:
-    - tool="query_linked_master_data"
-    - mode="query" (or omit mode)
-    - collection inferred from question
-16. For "SP of <district>" style phrasing, preserve district_name.
-17. If query is ambiguous and a required argument is unknown, still return your best route but lower confidence.
-18. Output ONLY JSON. No markdown, no prose outside the JSON object.
+## Priority Rules:
+1. Output only one valid JSON object in the required format.
+2. Choose exactly one tool that best matches user intent.
+3. Extract only real entities (person, district, unit, rank, module). Do not turn sort words or modifiers into filters.
+4. For rank queries, use query_personnel_by_rank and map relation correctly:
+   - "above SI" -> "above"
+   - "below DSP" -> "below"
+   - "SI and above" -> "at_or_above"
+   - "SI and below" -> "at_or_below"
+5. For "SP of <district>" or similar phrasing, keep district_name and set rank_relation="exact".
+6. For interlink/schema/relationship questions across master tables, use query_linked_master_data with mode="discover".
+7. For records from master tables (modules/prompts/notifications/errors/logs/roles/permissions/value sets), use query_linked_master_data with mode="query" and inferred collection.
+8. If required arguments are missing, return the best tool with known arguments only and lower confidence.
+9. Use search_personnel as fallback only for person lookup when no better tool fits.
+10. Confidence must be between 0 and 1.
 
 ## Schema and Relation Hints:
 - Core personnel links:
@@ -196,6 +182,25 @@ Always respond with valid JSON in this exact format:
   - "value sets" => value_sets_master
 - If user asks relationship/schema/linking questions, prefer query_linked_master_data with mode="discover".
 - If user asks for records from those masters, use query_linked_master_data with mode="query".
+
+## Negative Examples (Do NOT Do This):
+Bad Input: "list all SI in alphabetical order"
+Bad Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Alphabetical Order","rank_name":"Sub-Inspector","rank_relation":"exact"},"understood_query":"List SI in district Alphabetical Order","confidence":0.20}
+Good Output:
+{"tool":"query_personnel_by_rank","arguments":{"rank_name":"Sub-Inspector","rank_relation":"exact"},"understood_query":"List all Sub-Inspectors sorted alphabetically","confidence":0.93}
+
+Bad Input: "who is the SP of guntur"
+Bad Output:
+{"tool":"query_personnel_by_rank","arguments":{"rank_name":"Superintendent of Police","rank_relation":"exact"},"understood_query":"Find all SP personnel","confidence":0.45}
+Good Output:
+{"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Superintendent of Police","rank_relation":"exact"},"understood_query":"Find Superintendent of Police personnel in Guntur","confidence":0.93}
+
+Bad Input: "how are roles and permissions linked"
+Bad Output:
+{"tool":"list_districts","arguments":{},"understood_query":"List districts","confidence":0.10}
+Good Output:
+{"tool":"query_linked_master_data","arguments":{"collection":"roles_master","mode":"discover","include_related":true,"include_reverse":true,"include_integrity":true},"understood_query":"Discover relationship mapping between roles and permissions","confidence":0.94}
 
 ## Few-shot Examples:
 Input: "list personell in guntur, above the rank of an SI"
