@@ -361,11 +361,25 @@ def extract_unit_hint(text: str) -> Optional[str]:
 
 def is_followup_district_query(text: str) -> bool:
     q = normalize_common_query_typos(text or "").lower()
-    return bool(
+    if not (
         re.search(r"\b(their|them|they|those|these)\b", q)
         and re.search(r"\bdistricts?\b", q)
-        and re.search(r"\b(belong|belongs|belonging|in|of)\b", q)
-    )
+    ):
+        return False
+
+    # If user is asking for contact/details/rank retrieval, do not collapse to
+    # district-only follow-up formatting.
+    if re.search(r"\b(contact|mobile|phone|email|dob|address|rank|designation|details?)\b", q):
+        return False
+
+    followup_patterns = [
+        r"\b(which|what)\s+districts?\s+do\s+(they|those|these)\s+belong\s+to\b",
+        r"\b(they|those|these)\s+belong\s+to\s+(which|what)\s+districts?\b",
+        r"\bdistricts?\s+(they|those|these)\s+belong\s+to\b",
+        r"\b(which|what)\s+districts?\s+are\s+(they|those|these)\s+from\b",
+        r"\b(?:districts?\s+of\s+(them|those|these))\b",
+    ]
+    return any(re.search(pattern, q) for pattern in followup_patterns)
 
 
 def district_from_person_record(person: Dict[str, Any]) -> Optional[str]:
