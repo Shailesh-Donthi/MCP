@@ -336,8 +336,10 @@ class ParseRouteResponseTests(unittest.TestCase):
 class LLMRouteQueryTests(unittest.IsolatedAsyncioTestCase):
     async def test_llm_route_query_uses_strict_retry(self) -> None:
         with (
-            patch("mcp.llm_router.call_claude_api", new=AsyncMock(side_effect=["not-json", '{"tool":"list_districts","arguments":{},"confidence":0.81}'])),
-            patch("mcp.llm_router.call_openai_api", new=AsyncMock(return_value=None)),
+            patch(
+                "mcp.llm_router.call_openai_api",
+                new=AsyncMock(side_effect=["not-json", '{"tool":"list_districts","arguments":{},"confidence":0.81}']),
+            ),
         ):
             tool, args, understood, confidence, source = await llm_route_query("which districts are available")
         self.assertEqual("list_districts", tool)
@@ -348,7 +350,6 @@ class LLMRouteQueryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_llm_route_query_falls_back_to_heuristics(self) -> None:
         with (
-            patch("mcp.llm_router.call_claude_api", new=AsyncMock(return_value=None)),
             patch("mcp.llm_router.call_openai_api", new=AsyncMock(return_value=None)),
             patch("mcp.llm_router.fallback_route_query", return_value=("list_districts", {}, "which districts are available", 0.5)),
         ):

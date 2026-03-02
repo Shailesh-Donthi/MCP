@@ -12,7 +12,6 @@ from mcp.router import (
     ROUTER_SYSTEM_PROMPT,
     ROUTER_STRICT_SYSTEM_PROMPT,
     RESPONSE_FORMATTER_PROMPT,
-    call_claude_api,
     call_openai_api,
     repair_route,
     needs_clarification,
@@ -118,9 +117,7 @@ async def llm_route_query(
         messages.extend(conversation_context[-8:])
     messages.append({"role": "user", "content": query})
 
-    response = await call_claude_api(messages, ROUTER_SYSTEM_PROMPT)
-    if not response:
-        response = await call_openai_api(messages, ROUTER_SYSTEM_PROMPT)
+    response = await call_openai_api(messages, ROUTER_SYSTEM_PROMPT)
 
     parsed = _parse_route_response(response, query)
     if parsed:
@@ -129,9 +126,7 @@ async def llm_route_query(
 
     # Retry once with stricter output instructions and no conversation context.
     strict_messages = [{"role": "user", "content": query}]
-    retry_response = await call_claude_api(strict_messages, ROUTER_STRICT_SYSTEM_PROMPT)
-    if not retry_response:
-        retry_response = await call_openai_api(strict_messages, ROUTER_STRICT_SYSTEM_PROMPT)
+    retry_response = await call_openai_api(strict_messages, ROUTER_STRICT_SYSTEM_PROMPT)
     retry_parsed = _parse_route_response(retry_response, query)
     if retry_parsed:
         tool, args, understood_query, confidence = retry_parsed
@@ -165,9 +160,7 @@ async def llm_format_response(
         messages.extend(conversation_context[-8:])
     messages.append({"role": "user", "content": prompt})
 
-    response = await call_claude_api(messages, RESPONSE_FORMATTER_PROMPT, max_tokens=2048)
-    if not response:
-        response = await call_openai_api(messages, RESPONSE_FORMATTER_PROMPT, max_tokens=2048)
+    response = await call_openai_api(messages, RESPONSE_FORMATTER_PROMPT, max_tokens=2048)
     if response:
         return response
     return fallback_format_response(query, tool_name, {}, result)

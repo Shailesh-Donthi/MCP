@@ -19,8 +19,7 @@
 
 - Redis (`REDIS_URL`) for cache/shared state
 - LLM provider API access for smarter routing:
-  - OpenAI (`OPENAI_API_KEY`)
-  - Anthropic (`ANTHROPIC_API_KEY`)
+  - OpenAI / Azure OpenAI-compatible (`OPENAI_API_KEY` or Azure key envs)
 
 ## Runtime Requirements
 
@@ -61,7 +60,6 @@
 - `REDIS_URL`
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL`
-- `ANTHROPIC_API_KEY`
 - `MCP_LOG_LEVEL`
 - `MCP_LOG_FILE`
 - `MCP_LOG_MAX_BYTES`
@@ -128,4 +126,3 @@
 - Version / Commit SHA: `____________________`
 - Deployment date/time: `____________________`
 - Deployed by: `____________________`
-

@@ -1,4 +1,4 @@
-"""Thin wrappers around Claude/OpenAI/Azure chat APIs."""
+"""Thin wrappers around OpenAI/Azure chat APIs."""
 
 import logging
 import os
@@ -120,7 +120,7 @@ def _build_openai_headers(api_key: str, base_url: str) -> Dict[str, str]:
 
 
 def has_llm_api_key() -> bool:
-    return bool(_get_env_or_dotenv("ANTHROPIC_API_KEY") or _get_openai_api_key())
+    return bool(_get_openai_api_key())
 
 
 def _get_openai_model() -> str:
@@ -137,41 +137,6 @@ def _get_openai_model() -> str:
         or _get_env_or_dotenv("AZURE_OPENAI_DEPLOYMENT")
         or "gpt-4o-mini"
     )
-
-
-async def call_claude_api(
-    messages: List[Dict[str, str]],
-    system: str,
-    max_tokens: int = 1024,
-) -> Optional[str]:
-    anthropic_api_key = _get_env_or_dotenv("ANTHROPIC_API_KEY")
-    if not anthropic_api_key:
-        logger.warning("ANTHROPIC_API_KEY not set")
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": anthropic_api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-3-haiku-20240307",
-                    "max_tokens": max_tokens,
-                    "system": system,
-                    "messages": messages,
-                },
-            )
-            if response.status_code == 200:
-                data = response.json()
-                return data["content"][0]["text"]
-            logger.error(f"Claude API error: {response.status_code} - {response.text}")
-            return None
-    except Exception as exc:
-        logger.exception(f"Claude API call failed: {exc}")
-        return None
 
 
 async def call_openai_api(

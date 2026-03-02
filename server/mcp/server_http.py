@@ -2045,13 +2045,13 @@ async def intelligent_query(
     """
     AI-Powered query endpoint that can understand ANY natural language question.
 
-    Uses Claude/OpenAI to:
+    Uses OpenAI/Azure OpenAI-compatible models to:
     1. Understand the intent of the question
     2. Route to the correct tool
     3. Extract parameters intelligently
     4. Format a natural language response
 
-    Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable to enable.
+    Set OPENAI_API_KEY (or Azure OpenAI-compatible key/envs) to enable.
     Falls back to keyword-based routing if no API key is set.
     """
     from mcp.llm_router import get_intelligent_handler
