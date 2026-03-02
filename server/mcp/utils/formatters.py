@@ -770,11 +770,42 @@ def _format_personnel_response(
     )
     exact_match_truncated = bool(metadata.get("exact_name_match_truncated"))
 
+    def _collect_assignments(person: Dict[str, Any]) -> List[Dict[str, str]]:
+        rows: List[Dict[str, str]] = []
+        raw_assignments = person.get("assignments")
+        source_rows = raw_assignments if isinstance(raw_assignments, list) and raw_assignments else person.get("units", [])
+        if not isinstance(source_rows, list):
+            return rows
+        for row in source_rows:
+            if not isinstance(row, dict):
+                continue
+            rows.append(
+                {
+                    "unitName": str(row.get("unitName") or "").strip(),
+                    "districtName": str(row.get("districtName") or "").strip(),
+                    "designationName": str(row.get("designationName") or "").strip(),
+                }
+            )
+        return rows
+
+    def _assignment_text(assignment: Dict[str, str]) -> str:
+        text = assignment.get("unitName") or "Not assigned"
+        district = assignment.get("districtName") or ""
+        designation = assignment.get("designationName") or ""
+        if district:
+            text += f" ({district})"
+        if designation:
+            text += f" - {designation}"
+        return text
+
     def person_summary_lines(person: Dict[str, Any], index: int) -> List[str]:
         person_name = person.get("name", "Unknown")
         user_id = person.get("userId", "N/A")
         rank_name = (person.get("rank") or {}).get("name", "Unknown")
+        assignments = _collect_assignments(person)
         unit_name = person.get("primary_unit", "Not assigned")
+        if assignments and (not unit_name or unit_name == "Not assigned"):
+            unit_name = _assignment_text(assignments[0])
         mobile_val = person.get("mobile", "N/A")
         email_val = person.get("email", "N/A")
         return [
@@ -879,7 +910,10 @@ def _format_personnel_response(
 
     # Unit query
     elif any(word in query for word in ["unit", "station", "belongs", "posted", "work", "assigned"]):
+        assignments = _collect_assignments(person)
         primary_unit = person.get("primary_unit", "Not assigned")
+        if assignments and (not primary_unit or primary_unit == "Not assigned"):
+            primary_unit = _assignment_text(assignments[0])
         responses.append(f"{name} belongs to {primary_unit}")
 
     # Rank/Designation query
@@ -933,17 +967,62 @@ def _format_personnel_response(
 
     # General info / find person query
     else:
-        # Provide a summary
+        # Full person profile for generic identity prompts like "who is <name>".
         rank = person.get("rank", {}).get("name", "Unknown rank")
-        unit = person.get("primary_unit", "Not assigned")
+        rank_short = person.get("rank", {}).get("shortCode", "")
+        user_id = person.get("userId") or "N/A"
+        badge_no = person.get("badgeNo") or "N/A"
+        department = person.get("department") or "N/A"
+        gender = person.get("gender") or "N/A"
+        dob = person.get("dateOfBirth") or "N/A"
+        if isinstance(dob, str) and "T" in dob:
+            dob = dob.split("T")[0]
         mobile = person.get("mobile", "N/A")
         email = person.get("email", "N/A")
+        address = person.get("address") or "N/A"
+        blood_group = person.get("bloodGroup") or "N/A"
+        father_name = person.get("fatherName") or "N/A"
+        doj = person.get("dateOfJoining") or "N/A"
+        if isinstance(doj, str) and "T" in doj:
+            doj = doj.split("T")[0]
+        dor = person.get("dateOfRetirement") or "N/A"
+        if isinstance(dor, str) and "T" in dor:
+            dor = dor.split("T")[0]
+        status = "Active" if bool(person.get("isActive", True)) else "Inactive"
 
-        responses.append(f"Here is the information for {name}:")
-        responses.append(f"  - Rank: {rank}")
-        responses.append(f"  - Unit: {unit}")
+        assignments = _collect_assignments(person)
+        primary_unit = person.get("primary_unit", "Not assigned")
+        if assignments and (not primary_unit or primary_unit == "Not assigned"):
+            primary_unit = _assignment_text(assignments[0])
+
+        responses.append(f"Here is the full profile for {name}:")
+        responses.append(f"  - User ID: {user_id}")
+        responses.append(f"  - Badge No: {badge_no}")
+        if rank_short:
+            responses.append(f"  - Rank: {rank} ({rank_short})")
+        else:
+            responses.append(f"  - Rank: {rank}")
+        responses.append(f"  - Department: {department}")
+        responses.append(f"  - Current status: {status}")
+        responses.append(f"  - Unit/Station: {primary_unit}")
+        if assignments and assignments[0].get("districtName"):
+            responses.append(f"  - District: {assignments[0].get('districtName')}")
+        elif person.get("districtName"):
+            responses.append(f"  - District: {person.get('districtName')}")
+        responses.append(f"  - Gender: {gender}")
+        responses.append(f"  - Date of birth: {dob}")
         responses.append(f"  - Mobile: {mobile}")
         responses.append(f"  - Email: {email}")
+        responses.append(f"  - Address: {address}")
+        responses.append(f"  - Blood group: {blood_group}")
+        responses.append(f"  - Father name: {father_name}")
+        responses.append(f"  - Date of joining: {doj}")
+        responses.append(f"  - Date of retirement: {dor}")
+
+        if assignments:
+            responses.append("  - Active assignments:")
+            for idx, assignment in enumerate(assignments, 1):
+                responses.append(f"    {idx}. {_assignment_text(assignment)}")
 
     # Add note if multiple matches
     if total > 1:

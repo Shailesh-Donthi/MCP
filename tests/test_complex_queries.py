@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from mcp.llm_router import IntelligentQueryHandler
+from mcp.utils.formatters import generate_natural_language_response
 
 
 class ComplexQueryExecutionTests(unittest.IsolatedAsyncioTestCase):
@@ -164,6 +165,83 @@ class ComplexQueryExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("query_linked_master_data", result.get("routed_to"))
         self.assertEqual("discover", result.get("arguments", {}).get("mode"))
         self.assertEqual("llm", result.get("route_source"))
+
+    async def test_llm_enabled_person_lookup_uses_deterministic_formatter(self):
+        fake_handler = self._build_fake_handler()
+        with (
+            patch("mcp.llm_router.get_tool_handler", return_value=fake_handler),
+            patch("mcp.llm_router.has_llm_api_key", return_value=True),
+            patch(
+                "mcp.llm_router.llm_route_query",
+                new=AsyncMock(
+                    return_value=(
+                        "search_personnel",
+                        {"name": "Officer 00000002"},
+                        "who is officer 00000002",
+                        0.95,
+                        "llm",
+                    )
+                ),
+            ),
+            patch("mcp.llm_router.llm_format_response", new=AsyncMock(return_value="LLM_FORMATTED")) as llm_fmt,
+            patch("mcp.llm_router.fallback_format_response", return_value="FALLBACK_FORMATTED") as fallback_fmt,
+        ):
+            handler = IntelligentQueryHandler()
+            result = await handler.process_query("who is officer 00000002", context=None, session_id="det-person")
+
+        self.assertEqual("search_personnel", result.get("routed_to"))
+        self.assertEqual("FALLBACK_FORMATTED", result.get("response"))
+        self.assertTrue(fallback_fmt.called)
+        self.assertFalse(llm_fmt.called)
+
+
+class PersonnelFormatterTests(unittest.TestCase):
+    def test_person_profile_includes_assignment_details(self):
+        result = {
+            "success": True,
+            "data": [
+                {
+                    "name": "Chitikina Murali Krishna",
+                    "userId": "14402876",
+                    "badgeNo": None,
+                    "rank": {"name": "Deputy Superintendent of Police", "shortCode": "DSP"},
+                    "department": "Law & Order Wing",
+                    "isActive": True,
+                    "gender": "Male",
+                    "dateOfBirth": "1966-01-18T00:00:00",
+                    "mobile": "8096024000",
+                    "email": "chmurali.dsp@gmail.com",
+                    "address": None,
+                    "bloodGroup": None,
+                    "fatherName": None,
+                    "dateOfJoining": None,
+                    "dateOfRetirement": None,
+                    "primary_unit": "Not assigned",
+                    "assignments": [
+                        {
+                            "unitId": "u1",
+                            "unitName": "North Sub Division",
+                            "districtName": "Guntur",
+                            "designationName": "DSP",
+                        }
+                    ],
+                }
+            ],
+            "pagination": {"page": 1, "page_size": 1, "total": 1, "total_pages": 1},
+            "metadata": {},
+        }
+
+        response = generate_natural_language_response(
+            "who is chitikina murali krishna",
+            "search_personnel",
+            {"name": "Chitikina Murali Krishna"},
+            result,
+        )
+
+        self.assertIn("full profile", response.lower())
+        self.assertIn("North Sub Division", response)
+        self.assertIn("Guntur", response)
+        self.assertIn("Active assignments", response)
 
 
 if __name__ == "__main__":

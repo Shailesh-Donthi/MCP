@@ -226,6 +226,7 @@ class IntelligentQueryHandler:
         # Structured session state for follow-up robustness.
         self._session_state: Dict[str, Dict[str, Any]] = OrderedDict()
         self._deterministic_format_tools = {
+            "search_personnel",
             "list_units_in_district",
             "list_districts",
             "get_personnel_distribution",

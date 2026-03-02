@@ -129,6 +129,7 @@ class SearchPersonnelTool(BaseTool):
         results = await self.db[Collections.PERSONNEL_MASTER].aggregate(
             pipeline
         ).to_list(length=None)
+        results = await self._attach_current_assignments(results)
 
         # Get total count
         total = await self.db[Collections.PERSONNEL_MASTER].count_documents(query)
@@ -150,6 +151,7 @@ class SearchPersonnelTool(BaseTool):
         )
         if exact_override is not None:
             exact_results, exact_total, partial_total, exact_truncated = exact_override
+            exact_results = await self._attach_current_assignments(exact_results)
             formatted_results = self._format_personnel_results(exact_results)
             metadata.update({
                 "exact_name_match_applied": True,
@@ -421,11 +423,18 @@ class SearchPersonnelTool(BaseTool):
         formatted: List[Dict[str, Any]] = []
         for person in results:
             unit_summary = self._build_unit_summary(person.get("units", []))
+            assignment_summary = self._build_unit_summary(person.get("assignments", []))
+            primary_unit = (
+                assignment_summary[0]
+                if assignment_summary
+                else (unit_summary[0] if unit_summary else "Not assigned")
+            )
             formatted.append(
                 {
                     **person,
                     "unit_summary": unit_summary,
-                    "primary_unit": unit_summary[0] if unit_summary else "Not assigned",
+                    "assignment_summary": assignment_summary,
+                    "primary_unit": primary_unit,
                 }
             )
         return formatted
@@ -442,6 +451,118 @@ class SearchPersonnelTool(BaseTool):
                 text += f" - {unit['designationName']}"
             summary.append(text)
         return summary
+
+    async def _attach_current_assignments(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Hydrate current assignments from assignment_master for consistent posting data."""
+        if not results:
+            return results
+
+        user_ids: List[ObjectId] = []
+        id_keys: List[str] = []
+        for row in results:
+            row_id = str(row.get("_id") or "").strip()
+            if not row_id or not ObjectId.is_valid(row_id):
+                continue
+            id_keys.append(row_id)
+            user_ids.append(ObjectId(row_id))
+
+        if not user_ids:
+            return results
+
+        pipeline: List[Dict[str, Any]] = [
+            {
+                "$match": {
+                    "userId": {"$in": user_ids},
+                    "isDelete": False,
+                    "isActive": True,
+                }
+            },
+            {
+                "$lookup": {
+                    "from": Collections.UNIT,
+                    "localField": "unitId",
+                    "foreignField": "_id",
+                    "as": "unitData",
+                }
+            },
+            {"$unwind": {"path": "$unitData", "preserveNullAndEmptyArrays": True}},
+            {
+                "$lookup": {
+                    "from": Collections.DISTRICT,
+                    "localField": "unitData.districtId",
+                    "foreignField": "_id",
+                    "as": "districtData",
+                }
+            },
+            {"$unwind": {"path": "$districtData", "preserveNullAndEmptyArrays": True}},
+            {
+                "$lookup": {
+                    "from": Collections.DESIGNATION_MASTER,
+                    "localField": "designationId",
+                    "foreignField": "_id",
+                    "as": "designationData",
+                }
+            },
+            {"$unwind": {"path": "$designationData", "preserveNullAndEmptyArrays": True}},
+            {
+                "$project": {
+                    "userId": {"$toString": "$userId"},
+                    "unitId": {"$toString": "$unitId"},
+                    "unitName": "$unitData.name",
+                    "districtName": "$districtData.name",
+                    "designationName": "$designationData.name",
+                }
+            },
+            {"$sort": {"unitName": 1, "designationName": 1}},
+        ]
+        assignment_rows = await self.db[Collections.ASSIGNMENT_MASTER].aggregate(pipeline).to_list(length=None)
+
+        by_user: Dict[str, List[Dict[str, Any]]] = {k: [] for k in id_keys}
+        for row in assignment_rows:
+            user_key = str(row.get("userId") or "").strip()
+            if not user_key:
+                continue
+            assignment = {
+                "unitId": str(row.get("unitId") or ""),
+                "unitName": row.get("unitName"),
+                "districtName": row.get("districtName"),
+                "designationName": row.get("designationName"),
+            }
+            if user_key not in by_user:
+                by_user[user_key] = []
+            duplicate = any(
+                (
+                    str(existing.get("unitId") or ""),
+                    str(existing.get("unitName") or ""),
+                    str(existing.get("designationName") or ""),
+                )
+                == (
+                    str(assignment.get("unitId") or ""),
+                    str(assignment.get("unitName") or ""),
+                    str(assignment.get("designationName") or ""),
+                )
+                for existing in by_user[user_key]
+            )
+            if not duplicate:
+                by_user[user_key].append(assignment)
+
+        for row in results:
+            row_id = str(row.get("_id") or "").strip()
+            assignments = by_user.get(row_id, [])
+            row["assignments"] = assignments
+            if assignments and (not isinstance(row.get("units"), list) or len(row.get("units", [])) == 0):
+                row["units"] = [
+                    {
+                        "unitId": assignment.get("unitId"),
+                        "unitName": assignment.get("unitName"),
+                        "districtName": assignment.get("districtName"),
+                        "designationName": assignment.get("designationName"),
+                    }
+                    for assignment in assignments
+                    if assignment.get("unitId") or assignment.get("unitName")
+                ]
+
+        return results
 
     def _non_empty_params(self, params: Dict[str, Optional[str]]) -> Dict[str, str]:
         return {k: v for k, v in params.items() if v}
