@@ -28,6 +28,10 @@ class SearchPersonnelTool(BaseTool):
         "Returns their details including which unit(s) they belong to, their rank, "
         "and designation. Use this to find 'Which unit does person X belong to?'"
     )
+    _PERSON_TITLE_PREFIX_RE = re.compile(
+        r"^\s*(?:mr|mrs|ms|miss|dr|sri|shri|smt|mt)\.?\s+",
+        re.IGNORECASE,
+    )
 
     def get_input_schema(self) -> Dict[str, Any]:
         return {
@@ -134,10 +138,50 @@ class SearchPersonnelTool(BaseTool):
         # Get total count
         total = await self.db[Collections.PERSONNEL_MASTER].count_documents(query)
 
+        # Fallback for tolerant person-name resolution (titles, initials, punctuation)
+        # when name-only lookup returns no rows.
+        if (
+            total == 0
+            and isinstance(name, str)
+            and name.strip()
+            and not any([user_id, badge_no, mobile, email])
+        ):
+            best_name = await self._resolve_best_person_name(name, include_inactive=include_inactive)
+            if best_name and best_name.strip().lower() != name.strip().lower():
+                search_conditions = self._build_search_conditions(
+                    name=best_name,
+                    user_id=user_id,
+                    badge_no=badge_no,
+                    mobile=mobile,
+                    email=email,
+                )
+                if designation_condition:
+                    search_conditions.append(designation_condition)
+                base_query = self._build_base_query(search_conditions, include_inactive)
+                query = await self.apply_scope_filter(base_query, context, "personnel")
+                pipeline = self._build_personnel_search_pipeline(query, skip, page_size)
+                results = await self.db[Collections.PERSONNEL_MASTER].aggregate(
+                    pipeline
+                ).to_list(length=None)
+                results = await self._attach_current_assignments(results)
+                total = await self.db[Collections.PERSONNEL_MASTER].count_documents(query)
+                if total > 0:
+                    metadata_name = {
+                        "name_search_input": name,
+                        "name_search_resolved": best_name,
+                    }
+                else:
+                    metadata_name = {}
+            else:
+                metadata_name = {}
+        else:
+            metadata_name = {}
+
         formatted_results = self._format_personnel_results(results)
         metadata: Dict[str, Any] = {
             "search_params": self._non_empty_params(search_params),
         }
+        metadata.update(metadata_name)
 
         # If the user gave a name, prefer exact full-name matches over broader partial matches.
         # When duplicates share the same exact name, return all of those exact-name matches.
@@ -182,14 +226,19 @@ class SearchPersonnelTool(BaseTool):
     ) -> List[Dict[str, Any]]:
         conditions: List[Dict[str, Any]] = []
         if name:
-            escaped_name = SafeQueryBuilder.escape_regex(name)
+            name_patterns = self._build_person_name_patterns(name)
+            name_or_conditions: List[Dict[str, Any]] = []
+            for pattern in name_patterns:
+                name_or_conditions.extend(
+                    [
+                        {"name": {"$regex": pattern, "$options": "i"}},
+                        {"firstName": {"$regex": pattern, "$options": "i"}},
+                        {"lastName": {"$regex": pattern, "$options": "i"}},
+                    ]
+                )
             conditions.append(
                 {
-                    "$or": [
-                        {"name": {"$regex": escaped_name, "$options": "i"}},
-                        {"firstName": {"$regex": escaped_name, "$options": "i"}},
-                        {"lastName": {"$regex": escaped_name, "$options": "i"}},
-                    ]
+                    "$or": name_or_conditions
                 }
             )
         if user_id:
@@ -212,6 +261,96 @@ class SearchPersonnelTool(BaseTool):
         if email:
             conditions.append({"email": {"$regex": email, "$options": "i"}})
         return conditions
+
+    def _strip_person_title_prefix(self, raw_name: str) -> str:
+        return re.sub(self._PERSON_TITLE_PREFIX_RE, "", str(raw_name or "")).strip()
+
+    def _canonical_person_name(self, raw_name: str) -> str:
+        value = normalize_common_entity_aliases(str(raw_name or ""))
+        value = re.sub(r"\s+", " ", value).strip()
+        value = self._strip_person_title_prefix(value)
+        value = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+        return re.sub(r"\s+", " ", value)
+
+    def _build_initials_flexible_name_pattern(self, raw_name: str) -> Optional[str]:
+        name = self._strip_person_title_prefix(normalize_common_entity_aliases(str(raw_name or "")))
+        tokens = re.findall(r"[A-Za-z]+", name)
+        if len(tokens) < 2:
+            return None
+        # Compact initial clusters like "GV Ramana Murthy" -> "G V Ramana Murthy"
+        first = tokens[0]
+        if (
+            len(first) >= 2
+            and len(first) <= 4
+            and first.isalpha()
+            and first.upper() == first
+            and len(tokens) > 1
+            and len(tokens[1]) > 1
+        ):
+            tokens = list(first) + tokens[1:]
+
+        initial_tokens: List[str] = []
+        remaining = list(tokens)
+        while remaining and len(remaining[0]) == 1:
+            initial_tokens.append(remaining.pop(0))
+        if not initial_tokens:
+            return None
+
+        initials_pattern = r"\s*".join(f"{re.escape(letter)}\\.?" for letter in initial_tokens)
+        if not remaining:
+            return rf"\b{initials_pattern}\b"
+        rest_pattern = r"\s+".join(re.escape(token) for token in remaining)
+        return rf"\b{initials_pattern}\s+{rest_pattern}\b"
+
+    def _build_person_name_patterns(self, raw_name: str) -> List[str]:
+        normalized = normalize_common_entity_aliases(str(raw_name or ""))
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        stripped = self._strip_person_title_prefix(normalized)
+        patterns: List[str] = []
+        for candidate in [normalized, stripped]:
+            if not candidate:
+                continue
+            escaped = SafeQueryBuilder.escape_regex(candidate)
+            if escaped and escaped.lower() not in {p.lower() for p in patterns}:
+                patterns.append(escaped)
+        initials_pattern = self._build_initials_flexible_name_pattern(stripped or normalized)
+        if initials_pattern and initials_pattern.lower() not in {p.lower() for p in patterns}:
+            patterns.append(initials_pattern)
+        return patterns
+
+    async def _resolve_best_person_name(
+        self,
+        raw_name: str,
+        *,
+        include_inactive: bool,
+    ) -> Optional[str]:
+        probe = self._canonical_person_name(raw_name)
+        if not probe:
+            return None
+
+        names_filter: Dict[str, Any] = {"isDelete": False}
+        if not include_inactive:
+            names_filter["isActive"] = True
+        names = await self.db[Collections.PERSONNEL_MASTER].distinct("name", names_filter)
+        if not names:
+            return None
+
+        canonical_to_original: Dict[str, str] = {}
+        for item in names:
+            if not isinstance(item, str):
+                continue
+            key = self._canonical_person_name(item)
+            if key and key not in canonical_to_original:
+                canonical_to_original[key] = item
+        if not canonical_to_original:
+            return None
+        if probe in canonical_to_original:
+            return canonical_to_original[probe]
+
+        best = fuzzy_best_match(probe, canonical_to_original.keys(), cutoff=0.78)
+        if not best:
+            return None
+        return canonical_to_original.get(best)
 
     async def _resolve_designation_condition(
         self,
