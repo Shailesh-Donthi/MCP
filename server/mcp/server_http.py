@@ -1251,6 +1251,13 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
 
     # Helper to extract district name from query
     def extract_district(q):
+        invalid_tokens = {
+            "each", "every", "available", "all",
+            "senior", "junior", "above", "below",
+            "officer", "officers", "personnel", "staff", "people",
+            "si", "sis", "asi", "asis", "hc", "pc", "dsp", "dysp", "sp",
+        }
+
         def _looks_like_sort_phrase(value: str) -> bool:
             return bool(
                 re.search(
@@ -1260,6 +1267,28 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
                 )
             )
 
+        def _sanitize_district_candidate(raw_value: str) -> Optional[str]:
+            value = re.sub(r"\s+", " ", str(raw_value or "")).strip()
+            value = re.sub(r"\s*(?:districts?|disctricts?|dist\.?)\s*$", "", value, flags=re.IGNORECASE).strip()
+            if not value:
+                return None
+            tokens = [t for t in re.findall(r"[A-Za-z]+", value) if t]
+            if not tokens:
+                return None
+            tokens = [t for t in tokens if t.lower() not in invalid_tokens]
+            if not tokens:
+                return None
+            if len(tokens) > 5:
+                tokens = tokens[-4:]
+            normalized = " ".join(tokens).strip()
+            if not normalized:
+                return None
+            if _looks_like_sort_phrase(normalized):
+                return None
+            if normalized.lower() in {"db", "database", "the db", "the database"}:
+                return None
+            return normalized.title()
+
         patterns = [
             r"(?:in|for|of|at|on)\s+([A-Za-z\s]+?)\s+(?:district|dist\.?)",
             r"([A-Za-z]+)\s+(?:district|dist\.?)",
@@ -1268,12 +1297,9 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
         for p in patterns:
             m = re.search(p, q, re.IGNORECASE)
             if m:
-                name = m.group(1).strip().title()
-                # Remove "District"/"Dist" if accidentally included
-                name = re.sub(r'\s*(?:District|Dist\.?)\s*$', '', name, flags=re.IGNORECASE).strip()
-                if _looks_like_sort_phrase(name):
-                    continue
-                return name
+                name = _sanitize_district_candidate(m.group(1))
+                if name:
+                    return name
 
         # Rank-context fallback for phrasing like "who is the SP of guntur".
         rank_context = bool(
@@ -1300,8 +1326,10 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
                     r"\b(ps|police\s+station|station|sdpo|spdo|dpo|range|circle|wing|unit)\b",
                     candidate,
                     re.IGNORECASE,
-                ) and not _looks_like_sort_phrase(candidate):
-                    return candidate.title()
+                ):
+                    normalized = _sanitize_district_candidate(candidate)
+                    if normalized:
+                        return normalized
         return None
 
     # Helper to extract unit name from query
@@ -1404,7 +1432,7 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
     # PRIORITY 0: List districts queries
     # ==========================================================================
     if re.search(
-        r"(?:which|what|list|show|get|all)\s+(?:districts?|disctricts?)|(?:districts?|disctricts?)\s+(?:available|in\s+the\s+db|in\s+database)|(?:info|information|details?|about)\s+(?:on\s+)?(?:all\s+)?(?:districts|disctricts)\b",
+        r"(?:which|what|list|show|get|all)\s+(?:districts?|disctricts?)|(?:districts?|disctricts?)\s+(?:available|in\s+the\s+db|in\s+database)|(?:available)\s+(?:districts?|disctricts?)|(?:info|information|details?|about)\s+(?:on\s+)?(?:all\s+)?(?:districts|disctricts)\b",
         query_lower,
     ):
         return "list_districts", args
@@ -1477,15 +1505,19 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
     if re.search(r"hierarchy|heirarchy|structure|tree|organization|parent|child\s+unit|sub\s*unit", query_lower):
         district = extract_district(query)
         unit = extract_unit(query)
+        if re.search(r"\bavailable\s+(?:districts?|disctricts?)\b", query_lower):
+            return "list_districts", {}
         # Also try: "Guntur hierarchy" / "hierarchy of Guntur"
         m = re.search(r"(?:hierarchy|heirarchy|structure|tree)\s+(?:of|for)\s+([A-Za-z\s]+?)(?:\?|$)", query, re.IGNORECASE)
         if m:
             name = m.group(1).strip()
             # Clean up - remove common words and "district"
             name = re.sub(r'\b(the|a|an)\b', '', name, flags=re.IGNORECASE).strip()
-            name = re.sub(r'\s*district\s*$', '', name, flags=re.IGNORECASE).strip()
+            name = re.sub(r'\s*(?:districts?|disctricts?|dist\.?)\s*$', '', name, flags=re.IGNORECASE).strip()
             if "district" in query_lower:
-                args["district_name"] = name.title()
+                district_name = extract_district(f"in {name} district")
+                if district_name:
+                    args["district_name"] = district_name
             else:
                 args["root_unit_name"] = name
         elif district:

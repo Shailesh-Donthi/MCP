@@ -158,6 +158,7 @@ def repair_route(
     def _extract_hierarchy_place(text: str) -> Optional[str]:
         if not text:
             return None
+        generic_place_words = {"available", "each", "every", "all"}
         patterns = [
             rf"{hierarchy_intent_pattern}\s+(?:of|for|in)\s+([A-Za-z][A-Za-z0-9\s\.\-']{{1,80}})",
             rf"{hierarchy_intent_pattern}\s*[:\-]\s*([A-Za-z][A-Za-z0-9\s\.\-']{{1,80}})",
@@ -168,11 +169,13 @@ def repair_route(
                 continue
             value = m.group(1)
             value = re.split(r"[,\?\.;]", value, maxsplit=1)[0]
-            value = re.sub(r"\b(?:district|dist\.?)\b", "", value, flags=re.IGNORECASE)
+            value = re.sub(r"\b(?:districts?|disctricts?|dist\.?)\b", "", value, flags=re.IGNORECASE)
             value = re.sub(r"\s+", " ", value).strip(" -")
             if not value:
                 continue
             if re.search(r"\b(personnel|personell|officers?|staff|people|unit|units)\b", value, re.IGNORECASE):
+                continue
+            if value.lower() in generic_place_words:
                 continue
             return value.title()
         return None
@@ -198,6 +201,35 @@ def repair_route(
                 re.IGNORECASE,
             )
         )
+
+    def _sanitize_district_value(raw_value: Optional[str]) -> Optional[str]:
+        invalid_tokens = {
+            "each", "every", "available", "all",
+            "senior", "junior", "above", "below",
+            "officer", "officers", "personnel", "personell", "staff", "people",
+            "unit", "units", "station", "stations",
+            "si", "sis", "asi", "asis", "hc", "pc", "dsp", "dysp", "sp",
+        }
+        value = re.sub(r"\s+", " ", str(raw_value or "")).strip()
+        value = re.sub(r"\s*(?:districts?|disctricts?|dist\.?)\s*$", "", value, flags=re.IGNORECASE).strip()
+        if not value or _looks_like_sort_phrase(value):
+            return None
+        if value.lower() in {"db", "database", "the db", "the database"}:
+            return None
+        tokens = [t for t in re.findall(r"[A-Za-z]+", value) if t]
+        if not tokens:
+            return None
+        filtered = [t for t in tokens if t.lower() not in invalid_tokens]
+        if not filtered:
+            return None
+        if len(filtered) > 5:
+            filtered = filtered[-4:]
+        normalized = " ".join(filtered).strip()
+        if not normalized:
+            return None
+        if normalized.lower() in {"db", "database", "the db", "the database"}:
+            return None
+        return normalized.title()
 
     def _extract_rank_relation(text: str) -> str:
         q = (text or "").lower()
@@ -255,10 +287,16 @@ def repair_route(
     if not place_hints and merged != query:
         place_hints = extract_place_hints(merged)
     place = place_hints[0] if place_hints else (extract_place_hint(query) or extract_place_hint(merged))
-    place_hints = [p for p in place_hints if not _looks_like_sort_phrase(p)]
+    sanitized_place_hints = []
+    for raw_place in place_hints:
+        normalized_place = _sanitize_district_value(raw_place)
+        if normalized_place and normalized_place not in sanitized_place_hints:
+            sanitized_place_hints.append(normalized_place)
+    place_hints = sanitized_place_hints
+    place = _sanitize_district_value(place)
     if place and _looks_like_sort_phrase(place):
         place = None
-    hierarchy_place_hint = _extract_hierarchy_place(query) or _extract_hierarchy_place(merged)
+    hierarchy_place_hint = _sanitize_district_value(_extract_hierarchy_place(query) or _extract_hierarchy_place(merged))
     if not place and hierarchy_place_hint:
         place = hierarchy_place_hint
     if hierarchy_place_hint and hierarchy_place_hint not in place_hints:
@@ -276,6 +314,22 @@ def repair_route(
     designation_hint = _extract_designation_hint(query) or _extract_designation_hint(merged)
     bare_info_subject = _extract_bare_info_subject(query)
     fixed_args = dict(arguments or {})
+    existing_district = _sanitize_district_value(str(fixed_args.get("district_name") or ""))
+    if existing_district:
+        fixed_args["district_name"] = existing_district
+    else:
+        fixed_args.pop("district_name", None)
+    existing_districts = fixed_args.get("district_names")
+    if isinstance(existing_districts, list):
+        normalized_districts = []
+        for item in existing_districts:
+            normalized = _sanitize_district_value(str(item or ""))
+            if normalized and normalized not in normalized_districts:
+                normalized_districts.append(normalized)
+        if normalized_districts:
+            fixed_args["district_names"] = normalized_districts[:4]
+        else:
+            fixed_args.pop("district_names", None)
     fixed_tool = tool_name
     prev_assistant_lower = (last_assistant_response or "").lower()
 

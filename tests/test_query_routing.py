@@ -124,6 +124,21 @@ class RouteQueryToToolTests(unittest.TestCase):
             {"district_name": "Guntur"},
         )
 
+    def test_asi_plural_query_keeps_correct_district(self) -> None:
+        tool, args = route_query_to_tool("List all ASIs in Chittoor district with phone numbers and email addresses")
+        self.assertEqual("query_personnel_by_rank", tool)
+        self.assertEqual("Chittoor", args.get("district_name"))
+
+    def test_hierarchy_available_districts_routes_to_list_districts(self) -> None:
+        tool, args = route_query_to_tool("Show the unit hierarchy for available districts")
+        self.assertEqual("list_districts", tool)
+        self.assertEqual({}, args)
+
+    def test_each_district_not_extracted_as_literal_district_name(self) -> None:
+        tool, args = route_query_to_tool("How many senior officers (SI and above) are in each district?")
+        self.assertEqual("query_personnel_by_rank", tool)
+        self.assertNotIn("district_name", args)
+
     def test_personnel_in_district_falls_back_to_distribution(self) -> None:
         self.assert_route(
             "list personnel in guntur district",
@@ -250,6 +265,33 @@ class RepairRouteTests(unittest.TestCase):
         self.assertEqual("Sub-Inspector", args.get("rank_name"))
         self.assertEqual("Guntur", args.get("district_name"))
 
+    def test_repair_route_drops_invalid_each_district_name(self) -> None:
+        tool, args = repair_route(
+            "How many senior officers (SI and above) are in each district?",
+            "query_personnel_by_rank",
+            {"rank_name": "Sub Inspector", "district_name": "Each"},
+        )
+        self.assertEqual("query_personnel_by_rank", tool)
+        self.assertNotIn("district_name", args)
+
+    def test_repair_route_normalizes_asis_prefixed_district_name(self) -> None:
+        tool, args = repair_route(
+            "List all ASIs in Chittoor district with phone numbers and email addresses",
+            "query_personnel_by_rank",
+            {"rank_name": "Assistant SubInspector", "district_name": "Asis Chittoor"},
+        )
+        self.assertEqual("query_personnel_by_rank", tool)
+        self.assertEqual("Chittoor", args.get("district_name"))
+
+    def test_repair_route_hierarchy_available_districts_returns_catalog(self) -> None:
+        tool, args = repair_route(
+            "Show the unit hierarchy for available districts",
+            "get_unit_hierarchy",
+            {"district_name": "Available"},
+        )
+        self.assertEqual("list_districts", tool)
+        self.assertEqual({}, args)
+
 
 class ExtractorTests(unittest.TestCase):
     def test_normalize_common_query_typos(self) -> None:
@@ -265,6 +307,14 @@ class ExtractorTests(unittest.TestCase):
     def test_extract_place_hints_hierarchy_query_strips_leading_get(self) -> None:
         places = extract_place_hints("get unit hierarchy for guntur district")
         self.assertEqual(["Guntur"], places)
+
+    def test_extract_place_hints_ignores_quantifier_each(self) -> None:
+        places = extract_place_hints("How many senior officers (SI and above) are in each district?")
+        self.assertEqual([], places)
+
+    def test_extract_place_hints_drops_rank_plural_noise(self) -> None:
+        places = extract_place_hints("List all ASIs in Chittoor district with phone numbers and email addresses")
+        self.assertEqual(["Chittoor"], places)
 
     def test_extract_rank_hints(self) -> None:
         ranks = extract_rank_hints("list circle inspectors and constables")
