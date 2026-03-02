@@ -12,25 +12,25 @@
 - Config/validation: `pydantic`, `pydantic-settings`
 - Auth/JWT libs: `python-jose`, `PyJWT`
 
-Dependency source: [server/requirements.txt](C:/Users/shail/Downloads/MCP_Proj/server/requirements.txt)
+Dependency source: [server/requirements.txt](server/requirements.txt)
 
 ## 2) Architecture
 
 - Server entrypoint:
-  - [mcp_server.py](C:/Users/shail/Downloads/MCP_Proj/mcp_server.py) (compatibility launcher)
-  - [server/mcp_server.py](C:/Users/shail/Downloads/MCP_Proj/server/mcp_server.py)
+  - [mcp_server.py](mcp_server.py) (compatibility launcher)
+  - [server/mcp_server.py](server/mcp_server.py)
 - Main HTTP/SSE app:
-  - [server/mcp/server_http.py](C:/Users/shail/Downloads/MCP_Proj/server/mcp/server_http.py)
+  - [server/mcp/server_http.py](server/mcp/server_http.py)
 - Query orchestration layer:
-  - [server/mcp/llm_router.py](C:/Users/shail/Downloads/MCP_Proj/server/mcp/llm_router.py)
+  - [server/mcp/llm_router.py](server/mcp/llm_router.py)
 - Tool execution registry:
-  - [server/mcp/handlers/tool_handler.py](C:/Users/shail/Downloads/MCP_Proj/server/mcp/handlers/tool_handler.py)
+  - [server/mcp/handlers/tool_handler.py](server/mcp/handlers/tool_handler.py)
 
 The system uses deterministic tool execution with optional LLM-based routing/formatting on top.
 
 ## 3) LLM Model & Provider
 
-LLM integration code: [server/mcp/router/llm_client.py](C:/Users/shail/Downloads/MCP_Proj/server/mcp/router/llm_client.py)
+LLM integration code: [server/mcp/router/llm_client.py](server/mcp/router/llm_client.py)
 
 - OpenAI / Azure OpenAI-compatible:
   - Chat endpoint style: `/chat/completions`
@@ -45,7 +45,7 @@ Behavior:
 
 ## 4) Data Layer (Mongo Collections)
 
-Configured whitelist: [server/mcp/config.py](C:/Users/shail/Downloads/MCP_Proj/server/mcp/config.py)
+Configured whitelist: [server/mcp/config.py](server/mcp/config.py)
 
 Primary collections used include:
 - `personnel_master`
@@ -59,7 +59,7 @@ Primary collections used include:
 
 ## 5) Tooling (Query Capabilities)
 
-Registered tools: [server/mcp/handlers/tool_handler.py](C:/Users/shail/Downloads/MCP_Proj/server/mcp/handlers/tool_handler.py)
+Registered tools: [server/mcp/handlers/tool_handler.py](server/mcp/handlers/tool_handler.py)
 
 - `search_personnel`
 - `search_unit`
@@ -80,13 +80,13 @@ Registered tools: [server/mcp/handlers/tool_handler.py](C:/Users/shail/Downloads
 ## 6) Frontend
 
 Client is plain HTML/CSS/JavaScript (no React/Vue build system in this repo):
-- [client/chatbot.html](C:/Users/shail/Downloads/MCP_Proj/client/chatbot.html)
-- [client/chatbot_app.js](C:/Users/shail/Downloads/MCP_Proj/client/chatbot_app.js)
-- [client/chatbot_output.js](C:/Users/shail/Downloads/MCP_Proj/client/chatbot_output.js)
+- [client/chatbot.html](client/chatbot.html)
+- [client/chatbot_app.js](client/chatbot_app.js)
+- [client/chatbot_output.js](client/chatbot_output.js)
 
 ## 7) Runtime Configuration
 
-Core app settings: [server/mcp/core/config.py](C:/Users/shail/Downloads/MCP_Proj/server/mcp/core/config.py)
+Core app settings: [server/mcp/core/config.py](server/mcp/core/config.py)
 
 Key runtime variables:
 - DB: `MONGODB_URI`, `MONGODB_DB_NAME`
