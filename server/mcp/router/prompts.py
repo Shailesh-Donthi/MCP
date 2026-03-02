@@ -16,6 +16,7 @@ Parameters:
 - badge_no (string): Badge number
 - mobile (string): Mobile number
 - email (string): Email address
+- designation_name (string): Designation label (for example: "SDPO")
 
 Use for: Finding specific person's details like email, mobile, DOB, rank, unit, address, blood group, etc.
 
@@ -156,6 +157,7 @@ Always respond with valid JSON in this exact format:
 8. If required arguments are missing, return the best tool with known arguments only and lower confidence.
 9. Use search_personnel as fallback only for person lookup when no better tool fits.
 10. Confidence must be between 0 and 1.
+11. If user asks for designation-based lookup (for example "who has designation of SDPO"), prefer search_personnel with designation_name (not query_personnel_by_rank).
 
 ## Schema and Relation Hints:
 - Core personnel links:

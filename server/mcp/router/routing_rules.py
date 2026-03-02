@@ -96,6 +96,65 @@ def repair_route(
                 return candidate
         return None
 
+    def _extract_sp_of_unit_candidate(text: str) -> Optional[str]:
+        if not text:
+            return None
+        patterns = [
+            r"\b(?:who\s+is|what\s+is\s+the\s+name\s+of|name\s+of)?\s*(?:the\s+)?(?:sp|superintendent\s+of\s+police)\s+of\s+([A-Za-z0-9\.\-\s]+?)(?:\s+district)?(?:\?|$)",
+            r"^\s*(?:the\s+)?(?:sp|superintendent\s+of\s+police)\s+([A-Za-z0-9\.\-\s]+?\s+(?:dpo|gpo|sdpo|spdo|ps|police\s+station|station|range|circle|wing|office))(?:\?|$)",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if not m:
+                continue
+            target = re.sub(r"\s+", " ", (m.group(1) or "")).strip(" ?")
+            target = re.sub(r"^(?:the|a|an)\s+", "", target, flags=re.IGNORECASE).strip()
+            if not target:
+                continue
+            if not re.search(
+                r"\b(?:dpo|gpo|sdpo|spdo|ps|police\s+station|station|range|circle|wing|office)\b",
+                target,
+                re.IGNORECASE,
+            ):
+                continue
+            target = re.sub(r"\bSPDO\b", "SDPO", target, flags=re.IGNORECASE)
+            target = re.sub(r"\bGPO\b", "DPO", target, flags=re.IGNORECASE)
+            return re.sub(r"\s+", " ", target).strip()
+        return None
+
+    def _extract_designation_hint(text: str) -> Optional[str]:
+        if not text:
+            return None
+        canonical_map = {
+            "spdo": "SDPO",
+            "sdpo": "SDPO",
+        }
+        patterns = [
+            r"\b(?:designation|post|role)\s+(?:of|for)\s+([A-Za-z][A-Za-z0-9\s\.\-']{1,60})(?:\?|$)",
+            r"\bwho\s+has\s+(?:the\s+)?(?:designation|post|role)\s+(?:of|for)?\s*([A-Za-z][A-Za-z0-9\s\.\-']{1,60})(?:\?|$)",
+            r"\blist\s+(?:all\s+)?([A-Za-z][A-Za-z0-9\s\.\-']{1,40})s?\b",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if not m:
+                continue
+            value = re.sub(r"\s+", " ", m.group(1)).strip(" ?.").lower()
+            value = re.sub(r"^(?:the|a|an)\s+", "", value, flags=re.IGNORECASE).strip()
+            if not value:
+                continue
+            # Singularize compact acronym-like tokens (e.g., "spdos" -> "spdo").
+            if " " not in value and value.endswith("s") and len(value) <= 10:
+                value = value[:-1]
+            if re.search(r"\b(district|unit|station|ps)\b", value, re.IGNORECASE):
+                continue
+            if value in canonical_map:
+                return canonical_map[value]
+            # Treat acronyms/short forms as uppercase designation labels.
+            if re.fullmatch(r"[a-z]{2,8}", value):
+                return value.upper()
+            return value.title()
+        return None
+
     def _extract_hierarchy_place(text: str) -> Optional[str]:
         if not text:
             return None
@@ -214,6 +273,7 @@ def repair_route(
     user_id_hint = extract_user_id_hint(query)
     mobile_hint = extract_mobile_hint(query)
     person_hint = extract_person_hint(query)
+    designation_hint = _extract_designation_hint(query) or _extract_designation_hint(merged)
     bare_info_subject = _extract_bare_info_subject(query)
     fixed_args = dict(arguments or {})
     fixed_tool = tool_name
@@ -266,6 +326,14 @@ def repair_route(
         or re.search(r"\b(?:sho|sdpo|spdo|in[\s-]?charge)\b\s+of\b", query_lower)
         or re.search(r"^\s*(?:the\s+)?(?:sho|sdpo|spdo)\s+[A-Za-z0-9]", query, re.IGNORECASE)
     )
+    asks_designation_lookup = bool(
+        designation_hint
+        and (
+            re.search(r"\b(designation|post|role)\b", query_lower)
+            or re.search(r"\blist\s+(?:all\s+)?(?:sdpo|spdo)s?\b", query_lower)
+            or re.search(r"\bwho\s+has\b", query_lower)
+        )
+    )
     mentions_personnel_typo_or_synonym = bool(
         re.search(r"\b(personnel|personell|staff|officers?|people)\b", query_lower)
     )
@@ -316,6 +384,12 @@ def repair_route(
             )
         ) >= 2
     )
+    sp_unit_candidate = _extract_sp_of_unit_candidate(query) or _extract_sp_of_unit_candidate(merged)
+
+    # "SP of <unit>" should resolve to current command/in-charge for that unit,
+    # not rank listing in district.
+    if sp_unit_candidate:
+        return "get_unit_command_history", {"unit_name": sp_unit_candidate}
 
     # Prefer unit hierarchy early for typo variants like "heirarchy of chittoor district"
     # before other generic "details/about" or list-style heuristics can interfere.
@@ -411,17 +485,35 @@ def repair_route(
         if unit_candidate:
             return "get_unit_command_history", {"unit_name": unit_candidate}
 
+    # Designation requests like "who has the designation of SPDO" should not be
+    # forced into rank lookup; use personnel search with designation filter.
+    if asks_designation_lookup and not asks_unit_leader_name and not person_hint:
+        return "search_personnel", {"designation_name": designation_hint}
+
     if asks_followup_details:
-        prev_rank = extract_rank_hint(last_user_query or "")
-        prev_place = extract_place_hint(last_user_query or "")
-        prev_user_id = extract_user_id_hint(last_user_query or "")
-        if prev_user_id:
-            return "search_personnel", {"user_id": prev_user_id}
-        if prev_rank:
-            args_followup: Dict[str, Any] = {"rank_name": prev_rank}
-            if prev_place:
-                args_followup["district_name"] = prev_place
-            return "query_personnel_by_rank", args_followup
+        explicit_current_target = bool(
+            rank_name
+            or place
+            or place_hints
+            or unit_hint
+            or user_id_hint
+            or person_hint
+        )
+        if explicit_current_target:
+            # Don't override explicit rank/place/unit queries that happen to
+            # contain pronouns like "their".
+            pass
+        else:
+            prev_rank = extract_rank_hint(last_user_query or "")
+            prev_place = extract_place_hint(last_user_query or "")
+            prev_user_id = extract_user_id_hint(last_user_query or "")
+            if prev_user_id:
+                return "search_personnel", {"user_id": prev_user_id}
+            if prev_rank:
+                args_followup: Dict[str, Any] = {"rank_name": prev_rank}
+                if prev_place:
+                    args_followup["district_name"] = prev_place
+                return "query_personnel_by_rank", args_followup
 
     if asks_followup_district:
         prev_rank = extract_rank_hint(last_user_query or "") or rank_name
@@ -697,6 +789,14 @@ def needs_clarification(query: str) -> bool:
         bool(extract_rank_hint(q))
         and re.search(r"\b(earliest|oldest)\b", q)
         and re.search(r"\b(date\s+of\s+birth|dob|birthday|birth)\b", q)
+    ):
+        return False
+    # Rank-relation phrasing like "SI and above in Guntur" is explicit and
+    # should not be treated as ambiguous compound intent.
+    if (
+        bool(extract_rank_hints(q))
+        and re.search(r"\band\s+(above|below)\b", q)
+        and bool(extract_place_hints(q))
     ):
         return False
     # Minimal/compound prompts with multiple intents should be clarified explicitly.

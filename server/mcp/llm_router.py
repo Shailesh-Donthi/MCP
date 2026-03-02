@@ -550,6 +550,11 @@ class IntelligentQueryHandler:
         state = self._get_state(session_id)
         q = (query or "").lower()
         new_args = dict(arguments or {})
+        explicit_rank_in_query = bool(extract_rank_hint(query))
+        explicit_place_in_query = bool(extract_place_hint(query))
+        explicit_unit_in_query = bool(extract_unit_hint(query))
+        explicit_person_in_query = bool(extract_person_hint(query))
+        explicit_user_in_query = bool(extract_user_id_hint(query))
         ordinal_item = self._get_last_list_item_by_ordinal(state, q)
         if ordinal_item:
             state["selected_entity"] = dict(ordinal_item)
@@ -581,13 +586,15 @@ class IntelligentQueryHandler:
         if isinstance(selected, dict) and __import__("re").search(r"\b(their|them|they|that one|this one|that unit|this unit|there)\b", q):
             selected_type = selected.get("entity_type")
             if selected_type == "personnel":
-                if not new_args.get("user_id") and selected.get("user_id"):
-                    new_args["user_id"] = selected["user_id"]
-                if not new_args.get("name") and selected.get("name"):
-                    new_args["name"] = selected["name"]
+                # Avoid leaking prior selected-person hints into standalone
+                # queries that already carry explicit rank/place/unit targets.
+                if not (explicit_rank_in_query or explicit_place_in_query or explicit_unit_in_query or explicit_person_in_query or explicit_user_in_query):
+                    if not new_args.get("user_id") and selected.get("user_id"):
+                        new_args["user_id"] = selected["user_id"]
+                    if not new_args.get("name") and selected.get("name"):
+                        new_args["name"] = selected["name"]
             elif selected_type == "unit":
                 selected_unit_name = selected.get("unit_name")
-                explicit_unit_in_query = bool(extract_unit_hint(query))
                 # For deictic follow-ups ("there", "that unit"), prefer the
                 # previously selected concrete unit over any fuzzy LLM value.
                 if isinstance(selected_unit_name, str) and selected_unit_name.strip():
@@ -608,7 +615,11 @@ class IntelligentQueryHandler:
         if not new_args.get("rank_name") and __import__("re").search(r"\b(their|them|they|those|these)\b", q):
             if state.get("last_rank"):
                 new_args["rank_name"] = state["last_rank"]
-        if not new_args.get("district_name") and __import__("re").search(r"\b(their|them|they|those|these)\b", q):
+        if (
+            not new_args.get("district_name")
+            and not explicit_place_in_query
+            and __import__("re").search(r"\b(their|them|they|those|these)\b", q)
+        ):
             if state.get("last_place"):
                 new_args["district_name"] = state["last_place"]
         return new_args
@@ -616,6 +627,10 @@ class IntelligentQueryHandler:
     def _is_followup_person_detail_query(self, query: str) -> bool:
         q = (query or "").lower()
         if not q:
+            return False
+        # If the query already carries explicit rank/place/unit targets, treat
+        # it as a standalone request instead of a pronoun follow-up.
+        if extract_rank_hint(query) or extract_place_hint(query) or extract_unit_hint(query):
             return False
         has_pronoun = bool(
             __import__("re").search(r"\b(their|them|they|his|her|that person|this person)\b", q)
@@ -629,7 +644,7 @@ class IntelligentQueryHandler:
             or "all details" in q
         )
         # Let existing district follow-up logic handle district/belonging intents.
-        district_intent = bool(__import__("re").search(r"\b(district|belong|belongs|belonging)\b", q))
+        district_intent = bool(__import__("re").search(r"\b(districts?|belong|belongs|belonging)\b", q))
         return has_pronoun and asks_details and not district_intent
 
     def _is_attribute_only_person_followup_query(self, query: str, state: Dict[str, Any]) -> bool:
@@ -931,6 +946,26 @@ class IntelligentQueryHandler:
                 if isinstance(retry_result, dict) and retry_result.get("success", False):
                     return tool_name, retry_args, retry_result
 
+        # Recover designation-style SDPO/SPDO prompts that were incorrectly
+        # routed as rank lookups by LLM/heuristics.
+        if (
+            tool_name == "query_personnel_by_rank"
+            and ("rank not found" in message.lower())
+        ):
+            failed_rank = str(args.get("rank_name") or "").strip().lower()
+            if failed_rank in {"sdpo", "spdo"}:
+                q = (query or "").lower()
+                if (
+                    "designation" in q
+                    or "post" in q
+                    or "role" in q
+                    or __import__("re").search(r"\blist\s+(?:all\s+)?(?:sdpo|spdo)s?\b", q)
+                ):
+                    retry_args = {"designation_name": "SDPO"}
+                    retry_result = await self.tool_handler.execute("search_personnel", retry_args, context)
+                    if isinstance(retry_result, dict) and retry_result.get("success", False):
+                        return "search_personnel", retry_args, retry_result
+
         # If a generic person search failed/empty for a place-like term, try district->unit fallback.
         if tool_name == "search_personnel":
             candidate_name = (args or {}).get("name")
@@ -945,6 +980,279 @@ class IntelligentQueryHandler:
                         return "list_units_in_district", retry_args, retry_result
 
         return tool_name, args, result
+
+    def _extract_leader_rank_hint(self, query: str) -> Optional[str]:
+        q = (query or "").lower()
+        if not q:
+            return None
+        if re.search(r"\b(superintendent\s+of\s+police|sp)\b", q):
+            return "Superintendent of Police"
+        if re.search(r"\b(deputy\s+superintendent\s+of\s+police|dysp|dsp|sdpo|spdo)\b", q):
+            return "Deputy Superintendent of Police"
+        return None
+
+    def _extract_district_from_unit_name(self, unit_name: str) -> Optional[str]:
+        raw = re.sub(r"\s+", " ", str(unit_name or "")).strip()
+        if not raw:
+            return None
+        m = re.match(
+            r"^\s*([A-Za-z][A-Za-z0-9\s\.\-']{1,80}?)\s+"
+            r"(?:dpo|district\s+police\s+office|sdpo|spdo|ps|police\s+station|station|range|circle|wing|office)\b",
+            raw,
+            re.IGNORECASE,
+        )
+        if not m:
+            return None
+        district = re.sub(r"\s+", " ", m.group(1)).strip(" .-")
+        return district.title() if district else None
+
+    @staticmethod
+    def _norm_token_text(value: Optional[str]) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+    @staticmethod
+    def _looks_like_unit_target(value: str) -> bool:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not text:
+            return False
+        if re.search(r"\bdistrict\b", text, re.IGNORECASE) and not re.search(
+            r"\b(dpo|gpo|sdpo|spdo|ps|station|sub\s+division|division|circle|range|wing|office|btn|battalion|apsp)\b",
+            text,
+            re.IGNORECASE,
+        ):
+            return False
+        return bool(
+            re.search(
+                r"\b(dpo|gpo|sdpo|spdo|ps|police\s+station|station|sub\s+division|division|circle|range|wing|office|btn|battalion|apsp)\b",
+                text,
+                re.IGNORECASE,
+            )
+        )
+
+    def _extract_role_of_unit_query(self, query: str) -> Optional[Tuple[str, str]]:
+        text = re.sub(r"\s+", " ", str(query or "")).strip()
+        if not text:
+            return None
+        patterns = [
+            r"\b(?:who\s+is|what\s+is\s+the\s+name\s+of|name\s+of)\s+(?:the\s+)?([A-Za-z0-9\[\]\(\),/&\-\s\.]{1,60})\s+of\s+([A-Za-z0-9\[\]\(\),/&\-\s\.]{2,120})(?:\?|$)",
+            r"^\s*([A-Za-z0-9\[\]\(\),/&\-\s\.]{1,60})\s+of\s+([A-Za-z0-9\[\]\(\),/&\-\s\.]{2,120})(?:\?|$)",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if not m:
+                continue
+            role_text = re.sub(r"\s+", " ", (m.group(1) or "")).strip(" ?.")
+            unit_text = re.sub(r"\s+", " ", (m.group(2) or "")).strip(" ?.")
+            role_text = re.sub(r"^(?:the|a|an)\s+", "", role_text, flags=re.IGNORECASE).strip()
+            unit_text = re.sub(r"^(?:the|a|an)\s+", "", unit_text, flags=re.IGNORECASE).strip()
+            unit_text = re.sub(r"\bSPDO\b", "SDPO", unit_text, flags=re.IGNORECASE)
+            unit_text = re.sub(r"\bGPO\b", "DPO", unit_text, flags=re.IGNORECASE)
+            if not role_text or not unit_text:
+                continue
+            if not self._looks_like_unit_target(unit_text):
+                continue
+            return role_text, unit_text
+        return None
+
+    @staticmethod
+    def _extract_role_keys(text: str) -> set[str]:
+        value = re.sub(r"\s+", " ", str(text or "").lower()).strip()
+        if not value:
+            return set()
+        keys: set[str] = set()
+        patterns: List[Tuple[str, str]] = [
+            (r"\b(deputy\s+inspector\s+general\s+of\s+police|dig)\b", "dig"),
+            (r"\b(inspector\s+general\s+of\s+police|igp)\b", "igp"),
+            (r"\b(addl\.?\s*sp|additional\s+superintendent\s+of\s+police|asp)\b", "addl_sp"),
+            (r"\b(superintendent\s+of\s+police|sp)\b", "sp"),
+            (r"\b(deputy\s+superintendent\s+of\s+police|dysp|dsp|sdpo|spdo)\b", "dsp"),
+            (r"\b(circle\s+inspector|ci)\b", "ci"),
+            (r"\b(sub[\s-]?inspector|si)\b", "si"),
+            (r"\b(assistant\s+sub[\s-]?inspector|asi)\b", "asi"),
+            (r"\b(head\s+constable|hc)\b", "hc"),
+            (r"\b(police\s+constable|pc)\b", "pc"),
+            (r"\b(administrative\s+officer|ao)\b", "ao"),
+            (r"\b(office\s+superintendent|os)\b", "os"),
+            (r"\b(jr\s*/\s*sr\s*asst|jr\s*sr\s*asst|junior\s+office\s+assistant|joa)\b", "joa"),
+            (r"\b(public\s+relations\s+officer|pro)\b", "pro"),
+            (r"\b(inspector\s+of\s+police|inspector)\b", "inspector"),
+            (r"\b(sho)\b", "sho"),
+        ]
+        for pattern, key in patterns:
+            if re.search(pattern, value, re.IGNORECASE):
+                keys.add(key)
+        if "addl_sp" in keys:
+            keys.discard("sp")
+        if "asi" in keys:
+            keys.discard("si")
+        return keys
+
+    def _row_role_keys(self, row: Dict[str, Any]) -> set[str]:
+        if not isinstance(row, dict):
+            return set()
+        rank_name = str(row.get("rankName") or "")
+        rank_code = str(row.get("rankShortCode") or "")
+        return self._extract_role_keys(f"{rank_name} {rank_code}")
+
+    def _row_matches_requested_role(self, row: Dict[str, Any], requested_keys: set[str]) -> bool:
+        if not requested_keys:
+            return False
+        row_keys = self._row_role_keys(row)
+        if not row_keys:
+            return False
+        if requested_keys & row_keys:
+            return True
+        if "sho" in requested_keys and row_keys & {"si", "ci", "inspector"}:
+            return True
+        return False
+
+    def _extract_forced_senior_role_unit(self, query: str) -> Optional[Tuple[str, str]]:
+        parsed = self._extract_role_of_unit_query(query or "")
+        if not parsed:
+            return None
+        role_text, unit_name = parsed
+        keys = self._extract_role_keys(role_text)
+        if not ({"igp", "dig"} & keys):
+            return None
+        if not re.search(r"\b(range|office)\b", unit_name, re.IGNORECASE):
+            return None
+        return role_text, unit_name
+
+    async def _recover_role_of_unit_with_personnel_lookup(
+        self,
+        *,
+        query: str,
+        context: Optional[Any],
+    ) -> Optional[Tuple[str, Dict[str, Any], Dict[str, Any]]]:
+        parsed = self._extract_role_of_unit_query(query or "")
+        if not parsed:
+            return None
+        role_text, unit_name = parsed
+        requested_keys = self._extract_role_keys(role_text)
+        if not requested_keys:
+            return None
+
+        unit_args: Dict[str, Any] = {"unit_name": unit_name, "page_size": 500}
+        unit_result = await self.tool_handler.execute("query_personnel_by_unit", unit_args, context)
+        if not isinstance(unit_result, dict) or not unit_result.get("success", False):
+            return None
+        rows = unit_result.get("data")
+        if not isinstance(rows, list) or not rows:
+            return None
+
+        candidates = [row for row in rows if isinstance(row, dict) and self._row_matches_requested_role(row, requested_keys)]
+        if not candidates:
+            return None
+
+        # Ambiguous role-in-unit mapping: return candidate list rather than
+        # silently choosing an arbitrary first record.
+        if len(candidates) > 1:
+            ordered = sorted(
+                candidates,
+                key=lambda row: (
+                    str((row or {}).get("name") or "").lower(),
+                    str((row or {}).get("userId") or ""),
+                ),
+            )
+            list_result: Dict[str, Any] = {
+                "success": True,
+                "query_type": "personnel_by_unit",
+                "data": ordered,
+                "pagination": {
+                    "page": 1,
+                    "page_size": len(ordered),
+                    "total": len(ordered),
+                    "total_pages": 1,
+                },
+                "metadata": {
+                    "disambiguation": True,
+                    "role_text": role_text,
+                    "unit_name": unit_name,
+                    "candidate_count": len(ordered),
+                },
+            }
+            return "query_personnel_by_unit", {"unit_name": unit_name}, list_result
+
+        chosen = candidates[0]
+        chosen_user_id = chosen.get("userId")
+        if not isinstance(chosen_user_id, str) or not chosen_user_id.strip():
+            return None
+
+        person_args = {"user_id": chosen_user_id.strip()}
+        person_result = await self.tool_handler.execute("search_personnel", person_args, context)
+        if isinstance(person_result, dict) and person_result.get("success", False):
+            return "search_personnel", person_args, person_result
+        return None
+
+    async def _recover_missing_command_with_personnel_lookup(
+        self,
+        *,
+        query: str,
+        arguments: Dict[str, Any],
+        result: Dict[str, Any],
+        context: Optional[Any],
+    ) -> Optional[Tuple[str, Dict[str, Any], Dict[str, Any]]]:
+        if not isinstance(result, dict) or not result.get("success", False):
+            return None
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        if not metadata.get("command_data_missing"):
+            return None
+
+        rank_name = self._extract_leader_rank_hint(query or "")
+        if not rank_name:
+            return None
+
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        unit_name = (
+            (data.get("unitName") if isinstance(data, dict) else None)
+            or metadata.get("resolved_unit_name")
+            or arguments.get("unit_name")
+        )
+        if not isinstance(unit_name, str) or not unit_name.strip():
+            return None
+
+        rank_args: Dict[str, Any] = {
+            "rank_name": rank_name,
+            "rank_relation": "exact",
+            "page_size": 200,
+        }
+        district_name = self._extract_district_from_unit_name(unit_name)
+        if district_name:
+            rank_args["district_name"] = district_name
+
+        rank_result = await self.tool_handler.execute("query_personnel_by_rank", rank_args, context)
+        if not isinstance(rank_result, dict) or not rank_result.get("success", False):
+            return None
+        rows = rank_result.get("data")
+        if not isinstance(rows, list) or not rows:
+            return None
+
+        target_unit = self._norm_token_text(unit_name)
+        exact_unit_rows: List[Dict[str, Any]] = []
+        loose_rows: List[Dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            row_unit = self._norm_token_text(row.get("unitName") or row.get("primary_unit"))
+            if not row_unit:
+                continue
+            if row_unit == target_unit:
+                exact_unit_rows.append(row)
+            elif target_unit and (target_unit in row_unit or row_unit in target_unit):
+                loose_rows.append(row)
+        candidates = exact_unit_rows or loose_rows or rows
+        chosen = candidates[0] if candidates else None
+        if not isinstance(chosen, dict):
+            return None
+
+        chosen_user_id = chosen.get("userId")
+        if isinstance(chosen_user_id, str) and chosen_user_id.strip():
+            person_args = {"user_id": chosen_user_id.strip()}
+            person_result = await self.tool_handler.execute("search_personnel", person_args, context)
+            if isinstance(person_result, dict) and person_result.get("success", False):
+                return "search_personnel", person_args, person_result
+
+        return None
 
     async def process_query(
         self,
@@ -1410,6 +1718,7 @@ class IntelligentQueryHandler:
             tool_name, arguments = fallback_route_query(normalized_query)[:2]
             understood_query, confidence = normalized_query, 0.5
             route_source = "heuristic"
+        force_deterministic_response = False
 
         arguments = self._inject_state_hints(session_key, normalized_query, arguments)
         tool_name, arguments = repair_route(
@@ -1420,6 +1729,22 @@ class IntelligentQueryHandler:
             last_assistant_response=last_assistant_response,
         )
         tool_name, arguments = self._apply_ordinal_route_overrides(normalized_query, tool_name, arguments, state)
+        precomputed_result: Optional[Dict[str, Any]] = None
+
+        # Force DIG/IGP role-of-unit queries to unit-personnel resolution first
+        # so they don't drift into district/rank fallbacks.
+        forced_senior = self._extract_forced_senior_role_unit(normalized_query)
+        if forced_senior:
+            resolved = await self._recover_role_of_unit_with_personnel_lookup(
+                query=normalized_query,
+                context=context,
+            )
+            if resolved:
+                tool_name, arguments, precomputed_result = resolved
+                force_deterministic_response = True
+            else:
+                tool_name = "query_personnel_by_unit"
+                arguments = {"unit_name": forced_senior[1], "page_size": 500}
 
         # Let LLM try first on ambiguous queries. If LLM is unavailable/failed and
         # we only have a heuristic fallback, preserve the clarification behavior.
@@ -1485,7 +1810,7 @@ class IntelligentQueryHandler:
                 "output": output_payload,
             }
 
-        result = await self.tool_handler.execute(tool_name, arguments, context)
+        result = precomputed_result if precomputed_result is not None else await self.tool_handler.execute(tool_name, arguments, context)
 
         if not result.get("success", False):
             retry_tool, retry_args = repair_route(
@@ -1508,6 +1833,24 @@ class IntelligentQueryHandler:
                 state=state,
                 context=context,
             )
+        if tool_name == "get_unit_command_history":
+            recovered = await self._recover_missing_command_with_personnel_lookup(
+                query=normalized_query,
+                arguments=arguments,
+                result=result,
+                context=context,
+            )
+            if recovered:
+                tool_name, arguments, result = recovered
+                force_deterministic_response = True
+        if not force_deterministic_response:
+            role_unit_recovered = await self._recover_role_of_unit_with_personnel_lookup(
+                query=normalized_query,
+                context=context,
+            )
+            if role_unit_recovered:
+                tool_name, arguments, result = role_unit_recovered
+                force_deterministic_response = True
 
         if (
             tool_name == "search_personnel"
@@ -1528,7 +1871,7 @@ class IntelligentQueryHandler:
             data_payload = result.get("data", []) if isinstance(result, dict) else []
             district_response = format_followup_district_response(data_payload)
             response_text = district_response or fallback_format_response(query, tool_name, arguments, result)
-        elif tool_name in self._deterministic_format_tools:
+        elif tool_name in self._deterministic_format_tools or force_deterministic_response:
             response_text = fallback_format_response(query, tool_name, arguments, result)
         elif self.use_llm:
             response_text = await llm_format_response(query, tool_name, result, context_messages)

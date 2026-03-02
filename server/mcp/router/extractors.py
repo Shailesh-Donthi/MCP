@@ -41,7 +41,7 @@ RANK_PATTERNS: List[Tuple[str, str]] = [
 ]
 
 _PLACE_FILLER_WORDS = {
-    "give", "me", "info", "about", "details", "detail", "show", "list",
+    "give", "me", "info", "about", "details", "detail", "show", "list", "get",
     "what", "which", "is", "are", "the", "on", "in", "for", "of", "at",
     "by", "from", "starting", "start", "between", "across", "both", "same",
     "who", "all",

@@ -53,6 +53,10 @@ class SearchPersonnelTool(BaseTool):
                     "type": "string",
                     "description": "Email address",
                 },
+                "designation_name": {
+                    "type": "string",
+                    "description": "Designation name (case insensitive), e.g. SDPO",
+                },
                 "include_inactive": {
                     "type": "boolean",
                     "description": "Include inactive personnel",
@@ -80,14 +84,15 @@ class SearchPersonnelTool(BaseTool):
         badge_no = arguments.get("badge_no")
         mobile = arguments.get("mobile")
         email = arguments.get("email")
+        designation_name = arguments.get("designation_name")
         include_inactive = arguments.get("include_inactive", False)
         page, page_size, skip = self.get_pagination_params(arguments)
 
         # Validate at least one search param
-        if not any([name, user_id, badge_no, mobile, email]):
+        if not any([name, user_id, badge_no, mobile, email, designation_name]):
             return self.format_error_response(
                 "MISSING_PARAMETER",
-                "Provide at least one search parameter: name, user_id, badge_no, mobile, or email",
+                "Provide at least one search parameter: name, user_id, badge_no, mobile, email, or designation_name",
             )
 
         search_params = {
@@ -96,7 +101,15 @@ class SearchPersonnelTool(BaseTool):
             "badge_no": badge_no,
             "mobile": mobile,
             "email": email,
+            "designation_name": designation_name,
         }
+        designation_condition = await self._resolve_designation_condition(designation_name)
+        if designation_name and not designation_condition:
+            return self.format_error_response(
+                "NOT_FOUND",
+                f"Designation not found: {designation_name}",
+                {"hint": "Try a valid designation value (for example: SDPO)."},
+            )
         search_conditions = self._build_search_conditions(
             name=name,
             user_id=user_id,
@@ -104,6 +117,8 @@ class SearchPersonnelTool(BaseTool):
             mobile=mobile,
             email=email,
         )
+        if designation_condition:
+            search_conditions.append(designation_condition)
         base_query = self._build_base_query(search_conditions, include_inactive)
 
         # Apply scope filter
@@ -195,6 +210,41 @@ class SearchPersonnelTool(BaseTool):
         if email:
             conditions.append({"email": {"$regex": email, "$options": "i"}})
         return conditions
+
+    async def _resolve_designation_condition(
+        self,
+        designation_name: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not designation_name:
+            return None
+        normalized = normalize_common_entity_aliases(str(designation_name).strip())
+        if not normalized:
+            return None
+        if re.fullmatch(r"[A-Za-z]{2,10}", normalized) and normalized.lower().endswith("s"):
+            normalized = normalized[:-1]
+        # Common typo/alias normalization for this domain.
+        normalized = re.sub(r"\bSPDO\b", "SDPO", normalized, flags=re.IGNORECASE)
+        designation = await self.db[Collections.DESIGNATION_MASTER].find_one(
+            {
+                "name": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"},
+                "isDelete": False,
+            },
+            {"_id": 1},
+        )
+        if not designation:
+            names = await self.db[Collections.DESIGNATION_MASTER].distinct("name", {"isDelete": False})
+            best = fuzzy_best_match(normalized, names, cutoff=0.76)
+            if best:
+                designation = await self.db[Collections.DESIGNATION_MASTER].find_one(
+                    {
+                        "name": {"$regex": f"^{re.escape(best)}$", "$options": "i"},
+                        "isDelete": False,
+                    },
+                    {"_id": 1},
+                )
+        if not designation:
+            return None
+        return {"units.designationId": designation["_id"]}
 
     async def _get_exact_name_override(
         self,

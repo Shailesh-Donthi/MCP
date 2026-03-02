@@ -10,7 +10,7 @@ from mcp.router.extractors import (
     is_followup_district_query,
     normalize_common_query_typos,
 )
-from mcp.router.routing_rules import repair_route
+from mcp.router.routing_rules import needs_clarification, repair_route
 from mcp.server_http import route_query_to_tool
 
 
@@ -183,6 +183,24 @@ class RepairRouteTests(unittest.TestCase):
         self.assertEqual("query_personnel_by_rank", tool)
         self.assertEqual("Guntur", args.get("district_name"))
 
+    def test_sp_of_dpo_routes_to_command_history(self) -> None:
+        tool, args = repair_route(
+            "SP of Guntur DPO",
+            "query_personnel_by_rank",
+            {"rank_name": "Superintendent of Police", "district_name": "Guntur"},
+        )
+        self.assertEqual("get_unit_command_history", tool)
+        self.assertEqual("Guntur DPO", args.get("unit_name"))
+
+    def test_sp_of_gpo_typo_routes_to_command_history(self) -> None:
+        tool, args = repair_route(
+            "SP of Guntur GPO",
+            "query_personnel_by_rank",
+            {"rank_name": "Superintendent of Police", "district_name": "Guntur"},
+        )
+        self.assertEqual("get_unit_command_history", tool)
+        self.assertEqual("Guntur DPO", args.get("unit_name"))
+
     def test_master_relation_forces_discover_mode(self) -> None:
         tool, args = repair_route(
             "how are modules and notifications interlinked",
@@ -201,6 +219,24 @@ class RepairRouteTests(unittest.TestCase):
         )
         self.assertEqual("get_unit_command_history", tool)
         self.assertEqual("kuppam sdpo", str(args.get("unit_name", "")).lower())
+
+    def test_designation_query_maps_to_search_personnel_designation(self) -> None:
+        tool, args = repair_route(
+            "who has the designation of SPDO",
+            "query_personnel_by_rank",
+            {"rank_name": "SDPO"},
+        )
+        self.assertEqual("search_personnel", tool)
+        self.assertEqual("SDPO", args.get("designation_name"))
+
+    def test_plural_spdos_query_maps_to_search_personnel_designation(self) -> None:
+        tool, args = repair_route(
+            "list all SPDOs",
+            "query_personnel_by_rank",
+            {"rank_name": "Superintendent of Police"},
+        )
+        self.assertEqual("search_personnel", tool)
+        self.assertEqual("SDPO", args.get("designation_name"))
 
     def test_followup_district_repair_from_previous_rank(self) -> None:
         tool, args = repair_route(
@@ -226,6 +262,10 @@ class ExtractorTests(unittest.TestCase):
         places = extract_place_hints("Find all SIs in Guntur and Chittoor districts")
         self.assertEqual(["Guntur", "Chittoor"], places)
 
+    def test_extract_place_hints_hierarchy_query_strips_leading_get(self) -> None:
+        places = extract_place_hints("get unit hierarchy for guntur district")
+        self.assertEqual(["Guntur"], places)
+
     def test_extract_rank_hints(self) -> None:
         ranks = extract_rank_hints("list circle inspectors and constables")
         self.assertIn("Circle Inspector", ranks)
@@ -249,6 +289,11 @@ class ExtractorTests(unittest.TestCase):
                 "find all circle inspectors in guntur and chittoor districts and show their contact details"
             )
         )
+
+
+class ClarificationRuleTests(unittest.TestCase):
+    def test_rank_and_above_query_not_marked_for_clarification(self) -> None:
+        self.assertFalse(needs_clarification("show SI and above in guntur"))
 
 
 class ParseRouteResponseTests(unittest.TestCase):
@@ -390,6 +435,390 @@ class IntelligentQueryHandlerFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("DISTRICT_FOLLOWUP", followup.get("response"))
         self.assertTrue(district_fmt.called)
+
+    async def test_process_query_does_not_leak_selected_person_into_explicit_rank_place_query(self) -> None:
+        fake_handler = type("FakeHandler", (), {})()
+        fake_handler.execute = AsyncMock(
+            side_effect=[
+                {
+                    "success": True,
+                    "data": [
+                        {"name": "User 00001437", "userId": "00001437", "rank": {"name": "Sub Inspector"}},
+                    ],
+                    "pagination": {"page": 1, "page_size": 1, "total": 1, "total_pages": 1},
+                },
+                {
+                    "success": True,
+                    "data": [
+                        {"name": "User 00000738", "userId": "00000738", "rankName": "Circle Inspector", "districtName": "Guntur"},
+                    ],
+                    "pagination": {"page": 1, "page_size": 1, "total": 1, "total_pages": 1},
+                },
+            ]
+        )
+
+        async def _fake_route(query: str, conversation_context=None):
+            if "who has user id 00001437" in query.lower():
+                return "search_personnel", {"user_id": "00001437"}, query, 0.99, "llm"
+            return (
+                "query_personnel_by_rank",
+                {
+                    "rank_name": "Circle Inspector",
+                    "district_names": ["Guntur", "Chittoor"],
+                    "page_size": 200,
+                },
+                query,
+                0.95,
+                "llm",
+            )
+
+        with (
+            patch("mcp.llm_router.get_tool_handler", return_value=fake_handler),
+            patch("mcp.llm_router.has_llm_api_key", return_value=True),
+            patch("mcp.llm_router.llm_route_query", new=AsyncMock(side_effect=_fake_route)),
+            patch("mcp.llm_router.fallback_format_response", return_value="OK"),
+        ):
+            handler = IntelligentQueryHandler()
+            await handler.process_query("who has user id 00001437", context=None, session_id="s3")
+            await handler.process_query(
+                "list all Circle Inspectors in guntur and chittoor districts and show their contact details",
+                context=None,
+                session_id="s3",
+            )
+
+        second_call = fake_handler.execute.await_args_list[1]
+        self.assertEqual("query_personnel_by_rank", second_call.args[0])
+        second_args = second_call.args[1]
+        self.assertNotIn("user_id", second_args)
+        self.assertEqual("Circle Inspector", second_args.get("rank_name"))
+
+    async def test_process_query_recovers_designation_prompt_from_rank_not_found(self) -> None:
+        fake_handler = type("FakeHandler", (), {})()
+        fake_handler.execute = AsyncMock(
+            side_effect=[
+                {
+                    "success": False,
+                    "error": {"code": "NOT_FOUND", "message": "Rank not found: SDPO"},
+                },
+                {
+                    "success": True,
+                    "data": [],
+                    "pagination": {"page": 1, "page_size": 50, "total": 0, "total_pages": 1},
+                },
+            ]
+        )
+
+        async def _fake_route(query: str, conversation_context=None):
+            return (
+                "query_personnel_by_rank",
+                {"rank_name": "SDPO", "rank_relation": "exact"},
+                query,
+                0.92,
+                "llm",
+            )
+
+        with (
+            patch("mcp.llm_router.get_tool_handler", return_value=fake_handler),
+            patch("mcp.llm_router.has_llm_api_key", return_value=True),
+            patch("mcp.llm_router.llm_route_query", new=AsyncMock(side_effect=_fake_route)),
+            patch("mcp.llm_router.llm_format_response", new=AsyncMock(return_value="NO_MATCH_RESULT")),
+            patch("mcp.llm_router.fallback_format_response", return_value="NO_MATCH_RESULT"),
+        ):
+            handler = IntelligentQueryHandler()
+            result = await handler.process_query(
+                "who has the designation of SPDO",
+                context=None,
+                session_id="s4",
+            )
+
+        self.assertEqual("search_personnel", result.get("routed_to"))
+        self.assertEqual("SDPO", result.get("arguments", {}).get("designation_name"))
+        self.assertEqual("NO_MATCH_RESULT", result.get("response"))
+
+    async def test_process_query_recovers_sp_of_unit_when_command_data_missing(self) -> None:
+        fake_handler = type("FakeHandler", (), {})()
+        fake_handler.execute = AsyncMock(
+            side_effect=[
+                {
+                    "success": True,
+                    "data": {
+                        "unitId": "u1",
+                        "unitName": "Guntur DPO",
+                        "currentResponsibleUser": None,
+                        "history": [],
+                    },
+                    "metadata": {
+                        "command_data_missing": True,
+                        "resolved_unit_name": "Guntur DPO",
+                    },
+                    "pagination": {"page": 1, "page_size": 20, "total": 0, "total_pages": 0},
+                },
+                {
+                    "success": True,
+                    "data": [
+                        {
+                            "_id": "p1",
+                            "name": "Vakul Jindal",
+                            "userId": "14402876",
+                            "rankName": "Superintendent of Police",
+                            "unitName": "Guntur DPO",
+                            "districtName": "Guntur",
+                        },
+                        {
+                            "_id": "p2",
+                            "name": "Other SP",
+                            "userId": "10000001",
+                            "rankName": "Superintendent of Police",
+                            "unitName": "Technical Services",
+                            "districtName": "Guntur",
+                        },
+                    ],
+                    "pagination": {"page": 1, "page_size": 200, "total": 2, "total_pages": 1},
+                },
+                {
+                    "success": True,
+                    "data": [
+                        {
+                            "_id": "p1",
+                            "name": "Vakul Jindal",
+                            "userId": "14402876",
+                            "rankName": "Superintendent of Police",
+                        }
+                    ],
+                    "pagination": {"page": 1, "page_size": 1, "total": 1, "total_pages": 1},
+                },
+            ]
+        )
+
+        with (
+            patch("mcp.llm_router.get_tool_handler", return_value=fake_handler),
+            patch("mcp.llm_router.has_llm_api_key", return_value=True),
+            patch(
+                "mcp.llm_router.llm_route_query",
+                new=AsyncMock(
+                    return_value=(
+                        "get_unit_command_history",
+                        {"unit_name": "Guntur DPO"},
+                        "SP of Guntur DPO",
+                        0.98,
+                        "llm",
+                    )
+                ),
+            ),
+            patch(
+                "mcp.llm_router.llm_format_response",
+                new=AsyncMock(return_value="LLM_SHOULD_NOT_BE_USED"),
+            ) as llm_fmt,
+            patch(
+                "mcp.llm_router.fallback_format_response",
+                return_value="Vakul Jindal is the Superintendent of Police for Guntur DPO.",
+            ),
+        ):
+            handler = IntelligentQueryHandler()
+            result = await handler.process_query("SP of Guntur DPO", context=None, session_id="s5")
+
+        self.assertEqual("search_personnel", result.get("routed_to"))
+        self.assertEqual("14402876", result.get("arguments", {}).get("user_id"))
+        self.assertEqual("Vakul Jindal is the Superintendent of Police for Guntur DPO.", result.get("response"))
+        self.assertFalse(llm_fmt.called)
+
+    async def test_process_query_resolves_role_of_unit_via_unit_personnel_filter(self) -> None:
+        fake_handler = type("FakeHandler", (), {})()
+        fake_handler.execute = AsyncMock(
+            side_effect=[
+                {
+                    "success": True,
+                    "data": [
+                        {"name": "Unrelated", "userId": "00000001", "rankName": "Administrative Officer"},
+                    ],
+                    "pagination": {"page": 1, "page_size": 20, "total": 1, "total_pages": 1},
+                },
+                {
+                    "success": True,
+                    "data": [
+                        {"name": "Ambati Prabhudas", "userId": "14388807", "rankName": "Office Superintendent", "rankShortCode": "OS"},
+                        {"name": "Tirumalasetty Ranga Rao", "userId": "14408286", "rankName": "Administrative Officer", "rankShortCode": "AO"},
+                    ],
+                    "pagination": {"page": 1, "page_size": 500, "total": 2, "total_pages": 1},
+                },
+                {
+                    "success": True,
+                    "data": [
+                        {
+                            "_id": "p_ao",
+                            "name": "Tirumalasetty Ranga Rao",
+                            "userId": "14408286",
+                            "rankName": "Administrative Officer",
+                        }
+                    ],
+                    "pagination": {"page": 1, "page_size": 1, "total": 1, "total_pages": 1},
+                },
+            ]
+        )
+
+        with (
+            patch("mcp.llm_router.get_tool_handler", return_value=fake_handler),
+            patch("mcp.llm_router.has_llm_api_key", return_value=True),
+            patch(
+                "mcp.llm_router.llm_route_query",
+                new=AsyncMock(
+                    return_value=(
+                        "query_personnel_by_rank",
+                        {"rank_name": "Administrative Officer", "district_name": "Guntur"},
+                        "who is the AO of Sixth Btn APSP Mangalagiri?",
+                        0.93,
+                        "llm",
+                    )
+                ),
+            ),
+            patch(
+                "mcp.llm_router.llm_format_response",
+                new=AsyncMock(return_value="LLM_SHOULD_NOT_BE_USED"),
+            ) as llm_fmt,
+            patch(
+                "mcp.llm_router.fallback_format_response",
+                return_value="AO for Sixth Btn APSP Mangalagiri is Tirumalasetty Ranga Rao.",
+            ),
+        ):
+            handler = IntelligentQueryHandler()
+            result = await handler.process_query(
+                "who is the AO of Sixth Btn APSP Mangalagiri?",
+                context=None,
+                session_id="s6",
+            )
+
+        self.assertEqual("search_personnel", result.get("routed_to"))
+        self.assertEqual("14408286", result.get("arguments", {}).get("user_id"))
+        self.assertEqual("AO for Sixth Btn APSP Mangalagiri is Tirumalasetty Ranga Rao.", result.get("response"))
+        self.assertFalse(llm_fmt.called)
+
+    async def test_process_query_resolves_igp_of_unit_via_unit_personnel_filter(self) -> None:
+        fake_handler = type("FakeHandler", (), {})()
+        fake_handler.execute = AsyncMock(
+            side_effect=[
+                {
+                    "success": True,
+                    "data": [
+                        {"name": "Admin", "userId": "10000001", "rankName": "Sub Inspector", "rankShortCode": "SI"},
+                        {"name": "B. Raja Kumari", "userId": "9440796479", "rankName": "Inspector General of Police", "rankShortCode": "IGP"},
+                    ],
+                    "pagination": {"page": 1, "page_size": 500, "total": 2, "total_pages": 1},
+                },
+                {
+                    "success": True,
+                    "data": [
+                        {
+                            "_id": "p_igp",
+                            "name": "B. Raja Kumari",
+                            "userId": "9440796479",
+                            "rankName": "Inspector General of Police",
+                        }
+                    ],
+                    "pagination": {"page": 1, "page_size": 1, "total": 1, "total_pages": 1},
+                },
+            ]
+        )
+
+        with (
+            patch("mcp.llm_router.get_tool_handler", return_value=fake_handler),
+            patch("mcp.llm_router.has_llm_api_key", return_value=True),
+            patch(
+                "mcp.llm_router.llm_route_query",
+                new=AsyncMock(
+                    return_value=(
+                        "get_unit_command_history",
+                        {"unit_name": "APSP Head Office"},
+                        "who is the IGP of APSP Head Office?",
+                        0.96,
+                        "llm",
+                    )
+                ),
+            ),
+            patch(
+                "mcp.llm_router.llm_format_response",
+                new=AsyncMock(return_value="LLM_SHOULD_NOT_BE_USED"),
+            ) as llm_fmt,
+            patch(
+                "mcp.llm_router.fallback_format_response",
+                return_value="IGP for APSP Head Office is B. Raja Kumari.",
+            ),
+        ):
+            handler = IntelligentQueryHandler()
+            result = await handler.process_query(
+                "who is the IGP of APSP Head Office?",
+                context=None,
+                session_id="s7",
+            )
+
+        self.assertEqual("search_personnel", result.get("routed_to"))
+        self.assertEqual("9440796479", result.get("arguments", {}).get("user_id"))
+        self.assertEqual("IGP for APSP Head Office is B. Raja Kumari.", result.get("response"))
+        self.assertFalse(llm_fmt.called)
+
+    async def test_process_query_returns_candidate_list_for_ambiguous_role_in_unit(self) -> None:
+        fake_handler = type("FakeHandler", (), {})()
+        fake_handler.execute = AsyncMock(
+            side_effect=[
+                {
+                    "success": True,
+                    "data": [
+                        {"name": "Any PC", "userId": "10000001", "rankName": "Police Constable", "districtName": "Guntur"},
+                    ],
+                    "pagination": {"page": 1, "page_size": 20, "total": 1, "total_pages": 1},
+                },
+                {
+                    "success": True,
+                    "data": [
+                        {"name": "Abdul Fareed", "userId": "14166170", "rankName": "Police Constable", "rankShortCode": "PC"},
+                        {"name": "Kasukurthi Vijayakuamr", "userId": "14164121", "rankName": "Police Constable", "rankShortCode": "PC"},
+                        {"name": "Suraboyina Venkata Ravi", "userId": "14474547", "rankName": "Sub Inspector", "rankShortCode": "SI"},
+                    ],
+                    "pagination": {"page": 1, "page_size": 500, "total": 3, "total_pages": 1},
+                },
+            ]
+        )
+
+        with (
+            patch("mcp.llm_router.get_tool_handler", return_value=fake_handler),
+            patch("mcp.llm_router.has_llm_api_key", return_value=True),
+            patch(
+                "mcp.llm_router.llm_route_query",
+                new=AsyncMock(
+                    return_value=(
+                        "query_personnel_by_rank",
+                        {"rank_name": "Police Constable", "district_name": "Guntur"},
+                        "who is the PC of Duggirala PS?",
+                        0.9,
+                        "llm",
+                    )
+                ),
+            ),
+            patch(
+                "mcp.llm_router.llm_format_response",
+                new=AsyncMock(return_value="LLM_SHOULD_NOT_BE_USED"),
+            ) as llm_fmt,
+            patch(
+                "mcp.llm_router.fallback_format_response",
+                return_value="MULTIPLE_MATCHES",
+            ),
+        ):
+            handler = IntelligentQueryHandler()
+            result = await handler.process_query(
+                "who is the PC of Duggirala PS?",
+                context=None,
+                session_id="s8",
+            )
+
+        self.assertEqual("query_personnel_by_unit", result.get("routed_to"))
+        self.assertEqual("Duggirala PS", result.get("arguments", {}).get("unit_name"))
+        self.assertEqual("MULTIPLE_MATCHES", result.get("response"))
+        data_payload = result.get("data", {})
+        self.assertTrue(isinstance(data_payload, dict))
+        self.assertTrue(data_payload.get("success"))
+        rows = data_payload.get("data") if isinstance(data_payload, dict) else None
+        self.assertTrue(isinstance(rows, list))
+        self.assertEqual(2, len(rows))
+        self.assertFalse(llm_fmt.called)
 
 
 if __name__ == "__main__":
