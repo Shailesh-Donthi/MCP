@@ -5,7 +5,7 @@ Defines the user context that determines access scope for queries.
 """
 
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Optional
+from typing import Optional, List
 
 
 class UserContext(BaseModel):
@@ -21,12 +21,6 @@ class UserContext(BaseModel):
         default_factory=list, description="All district IDs user has access to"
     )
     role_id: Optional[str] = Field(None, description="User's role ID")
-    post_code: Optional[str] = Field(None, description="Post code (assignment/posting code)")
-    role_name: Optional[str] = Field(None, description="Role name from identity context")
-    reports_to_post: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Reporting-post metadata used for scope-aware routing",
-    )
 
     # Access scope
     scope_level: str = Field(

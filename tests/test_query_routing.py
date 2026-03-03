@@ -103,6 +103,18 @@ class RouteQueryToToolTests(unittest.TestCase):
             {"district_name": "Guntur"},
         )
 
+    def test_range_count_in_ap_routes_to_search_unit(self) -> None:
+        tool, args = route_query_to_tool("how many ranges in AP")
+        self.assertEqual("search_unit", tool)
+        self.assertEqual("Range", args.get("unit_type_name"))
+        self.assertNotIn("district_name", args)
+
+    def test_units_in_guntur_range_routes_to_range_filtered_district_units(self) -> None:
+        tool, args = route_query_to_tool("Show me units in guntur range")
+        self.assertEqual("list_units_in_district", tool)
+        self.assertEqual("Guntur", args.get("district_name"))
+        self.assertEqual("Range", args.get("unit_type_name"))
+
     def test_distribution_query(self) -> None:
         self.assert_route(
             "how many personnel are in guntur district",
@@ -234,6 +246,33 @@ class RepairRouteTests(unittest.TestCase):
         )
         self.assertEqual("get_unit_command_history", tool)
         self.assertEqual("kuppam sdpo", str(args.get("unit_name", "")).lower())
+
+    def test_sho_query_with_time_window_keeps_clean_unit_name(self) -> None:
+        tool, args = repair_route(
+            "who was the sho of guntur ps in last 15 days",
+            "get_unit_command_history",
+            {"unit_name": "guntur"},
+        )
+        self.assertEqual("get_unit_command_history", tool)
+        self.assertEqual("guntur ps", str(args.get("unit_name", "")).lower())
+
+    def test_where_is_prefers_search_unit_even_if_llm_suggests_designation(self) -> None:
+        tool, args = repair_route(
+            "where is Addl DGP LO",
+            "search_personnel",
+            {"designation_name": "Addl DGP LO"},
+        )
+        self.assertEqual("search_unit", tool)
+        self.assertEqual("Addl DGP LO", args.get("name"))
+
+    def test_vacancy_tool_alias_is_normalized(self) -> None:
+        tool, args = repair_route(
+            "show vacancies in annamayya district",
+            "count_vacancies_by_unit",
+            {"district_name": "Annamayya"},
+        )
+        self.assertEqual("count_vacancies_by_unit_rank", tool)
+        self.assertEqual("Annamayya", args.get("district_name"))
 
     def test_designation_query_maps_to_search_personnel_designation(self) -> None:
         tool, args = repair_route(
