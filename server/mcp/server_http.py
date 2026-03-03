@@ -1,16 +1,16 @@
-﻿"""Version-dispatch module for MCP HTTP server."""
+"""Version-dispatch module for MCP HTTP server."""
+
+from __future__ import annotations
+
+import sys
+from types import ModuleType
 
 from mcp.runtime_switch import get_logic_version, import_versioned_module
 
 ACTIVE_LOGIC_VERSION = get_logic_version()
-_selected_module = import_versioned_module("server_http")
+_selected_module: ModuleType = import_versioned_module("server_http")
 
-for _name in dir(_selected_module):
-    if _name.startswith("__"):
-        continue
-    globals()[_name] = getattr(_selected_module, _name)
+setattr(_selected_module, "ACTIVE_LOGIC_VERSION", ACTIVE_LOGIC_VERSION)
 
-if hasattr(_selected_module, "__all__"):
-    __all__ = list(getattr(_selected_module, "__all__"))
-else:
-    __all__ = [name for name in globals() if not name.startswith("__")]
+# Expose active module directly so imports/patches bind to live globals.
+sys.modules[__name__] = _selected_module

@@ -162,6 +162,8 @@ class QueryMatrixRegressionTests(unittest.TestCase):
         if not uri or not db_name:
             raise unittest.SkipTest("MONGODB_URI/MONGODB_DB_NAME not configured in .env")
 
+        cls._mongo_client = None
+        cls.http = None
         cls._mongo_client = MongoClient(uri, serverSelectionTimeoutMS=20000)
         cls.db = cls._mongo_client[db_name]
         cls.db.command("ping")
@@ -171,8 +173,18 @@ class QueryMatrixRegressionTests(unittest.TestCase):
         try:
             health = cls.http.get("http://127.0.0.1:8090/health")
             if health.status_code != 200:
+                cls.http.close()
+                cls.http = None
+                cls._mongo_client.close()
+                cls._mongo_client = None
                 raise unittest.SkipTest(f"API health endpoint returned {health.status_code}")
         except Exception as exc:
+            if cls.http is not None:
+                cls.http.close()
+                cls.http = None
+            if cls._mongo_client is not None:
+                cls._mongo_client.close()
+                cls._mongo_client = None
             raise unittest.SkipTest(f"API not reachable on 127.0.0.1:8090: {exc}") from exc
 
         cls.district_names = [
@@ -289,4 +301,3 @@ class QueryMatrixRegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

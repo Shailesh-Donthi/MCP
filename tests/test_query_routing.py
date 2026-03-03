@@ -274,6 +274,38 @@ class RepairRouteTests(unittest.TestCase):
         self.assertEqual("count_vacancies_by_unit_rank", tool)
         self.assertEqual("Annamayya", args.get("district_name"))
 
+    def test_range_count_query_repairs_llm_distribution_route(self) -> None:
+        tool, args = repair_route(
+            "how many ranges in AP",
+            "get_personnel_distribution",
+            {"group_by": "unit_type"},
+        )
+        self.assertEqual("search_unit", tool)
+        self.assertEqual("Range", args.get("unit_type_name"))
+        self.assertNotIn("district_name", args)
+
+    def test_units_in_range_query_repairs_missing_range_filter(self) -> None:
+        tool, args = repair_route(
+            "Show me units in guntur range",
+            "list_units_in_district",
+            {"district_name": "Guntur"},
+        )
+        self.assertEqual("list_units_in_district", tool)
+        self.assertEqual("Guntur", args.get("district_name"))
+        self.assertEqual("Range", args.get("unit_type_name"))
+
+    def test_followup_si_attachment_with_apostrophe_preserves_context(self) -> None:
+        tool, args = repair_route(
+            "show for which unit these SI's are attached",
+            "query_personnel_by_rank",
+            {"rank_name": "Sub-Inspector"},
+            last_user_query=None,
+            last_assistant_response="Sub-Inspector Personnel in Guntur district:\n\n1. A Person",
+        )
+        self.assertEqual("query_personnel_by_rank", tool)
+        self.assertIn("sub", str(args.get("rank_name", "")).lower())
+        self.assertEqual("Guntur", args.get("district_name"))
+
     def test_designation_query_maps_to_search_personnel_designation(self) -> None:
         tool, args = repair_route(
             "who has the designation of SPDO",

@@ -59,6 +59,16 @@ metrics = {
     "errors_total": 0,
 }
 
+# Best-effort persistence controls. Disable after explicit auth failures so
+# request logs do not spam warnings on every request.
+_session_log_persist_enabled = True
+_audit_log_persist_enabled = True
+
+
+def _is_mongo_auth_write_error(error: Exception) -> bool:
+    text = str(error or "").lower()
+    return "not authorized" in text or "unauthorized" in text
+
 
 # =============================================================================
 # Pydantic Models
@@ -341,6 +351,7 @@ async def log_session_event(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Structured session logging for chat/query flows."""
+    global _session_log_persist_enabled
     entry = {
         "timestamp": datetime.utcnow().isoformat(),
         "event": event,
@@ -360,11 +371,22 @@ async def log_session_event(
     log_structured(logger, "info", "session_event", **entry)
 
     # Best-effort persistence; logging must never fail the request path.
+    if not _session_log_persist_enabled:
+        return
     try:
         db = get_database()
-        if db:
+        if db is not None:
             await db["mcp_session_logs"].insert_one(entry)
     except Exception as e:
+        if _is_mongo_auth_write_error(e):
+            _session_log_persist_enabled = False
+            log_structured(
+                logger,
+                "warning",
+                "session_log_persist_disabled",
+                error=str(e),
+            )
+            return
         log_structured(logger, "warning", "session_log_persist_failed", error=str(e))
 
 
@@ -675,6 +697,7 @@ async def log_audit(
     error: Optional[str] = None,
 ) -> None:
     """Log audit entry"""
+    global _audit_log_persist_enabled
     audit_entry = {
         "timestamp": datetime.utcnow().isoformat(),
         "user_id": user_id,
@@ -690,11 +713,22 @@ async def log_audit(
     log_structured(logger, "info", "audit_event", **audit_entry)
 
     # Optionally store in MongoDB audit collection
+    if not _audit_log_persist_enabled:
+        return
     try:
         db = get_database()
-        if db:
+        if db is not None:
             await db["mcp_audit_logs"].insert_one(audit_entry)
     except Exception as e:
+        if _is_mongo_auth_write_error(e):
+            _audit_log_persist_enabled = False
+            log_structured(
+                logger,
+                "warning",
+                "audit_log_persist_disabled",
+                error=str(e),
+            )
+            return
         log_structured(logger, "warning", "audit_log_persist_failed", error=str(e))
 
 

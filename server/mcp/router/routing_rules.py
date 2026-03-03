@@ -392,6 +392,14 @@ def repair_route(
         re.search(r"\b(their|them|they|those|these)\b", query_lower)
         and re.search(r"\b(districts?|belong\s+to|belongs\s+to)\b", query_lower)
     )
+    asks_attachment_followup = bool(
+        re.search(r"\b(their|them|they|those|these)\b", query_lower)
+        and re.search(r"\b(unit|attached|attachment|assigned|posted|belongs?)\b", query_lower)
+        and re.search(
+            r"\b(si|si's|sis|sub[-\s]?inspectors?|asi|asis|hc|pc|constables?|inspectors?|dsp|dysp|sp)\b",
+            query_lower,
+        )
+    )
     asks_ordinal_details = bool(
         re.search(r"\b(info|information|details?|contact|email|mobile|phone)\b", query_lower)
         and extract_ordinal_index(query_lower) is not None
@@ -497,6 +505,30 @@ def repair_route(
     if where_is_target:
         return "search_unit", {"name": where_is_target}
 
+    # LLM may drift "how many ranges in AP" to distribution; force proper unit type lookup.
+    if (
+        re.search(r"\bhow\s+many\s+ranges?\b", query_lower)
+        or re.search(r"\b(?:count|total|number)\s+(?:of\s+)?ranges?\b", query_lower)
+        or re.search(r"\branges?\s+(?:count|total|number)\b", query_lower)
+    ):
+        args: Dict[str, Any] = {"unit_type_name": "Range"}
+        if place and place.lower() not in {"ap", "andhra pradesh"}:
+            args["district_name"] = place
+        return "search_unit", args
+
+    if (
+        re.search(r"\b(?:list|show|get|find)\b", query_lower)
+        and re.search(r"\bunits?\b", query_lower)
+        and re.search(r"\branges?\b", query_lower)
+    ):
+        args: Dict[str, Any] = {"unit_type_name": "Range"}
+        district = place
+        if district:
+            district = re.sub(r"\branges?\b", "", district, flags=re.IGNORECASE).strip()
+        if district:
+            args["district_name"] = district
+        return "list_units_in_district", args
+
     # Prefer unit hierarchy early for typo variants like "heirarchy of chittoor district"
     # before other generic "details/about" or list-style heuristics can interfere.
     if re.search(hierarchy_intent_pattern, query_lower) and not re.search(
@@ -595,6 +627,15 @@ def repair_route(
     # forced into rank lookup; use personnel search with designation filter.
     if asks_designation_lookup and not asks_unit_leader_name and not person_hint:
         return "search_personnel", {"designation_name": designation_hint}
+
+    if asks_attachment_followup:
+        prev_rank = extract_rank_hint(last_user_query or "") or extract_rank_hint(last_assistant_response or "") or rank_name
+        prev_place = extract_place_hint(last_user_query or "") or extract_place_hint(last_assistant_response or "") or place
+        if prev_rank:
+            args_followup: Dict[str, Any] = {"rank_name": prev_rank}
+            if prev_place:
+                args_followup["district_name"] = prev_place
+            return "query_personnel_by_rank", args_followup
 
     if asks_followup_details:
         explicit_current_target = bool(
