@@ -1,10 +1,10 @@
-﻿"""
+"""
 User Context Schema for MCP Tool Execution
 
 Defines the user context that determines access scope for queries.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Any, Dict, List, Optional
 
 
@@ -52,7 +52,7 @@ class UserContext(BaseModel):
         """Get all unit IDs the user can access"""
         if self.unit_ids:
             return self.unit_ids
-        elif self.unit_id:
+        elif self.unit_id is not None:
             return [self.unit_id]
         return []
 
@@ -60,12 +60,12 @@ class UserContext(BaseModel):
         """Get all district IDs the user can access"""
         if self.district_ids:
             return self.district_ids
-        elif self.district_id:
+        elif self.district_id is not None:
             return [self.district_id]
         return []
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "user_id": "507f1f77bcf86cd799439011",
                 "unit_id": "507f1f77bcf86cd799439012",
@@ -77,4 +77,5 @@ class UserContext(BaseModel):
                 "scope_level": "district",
             }
         }
+    )
 

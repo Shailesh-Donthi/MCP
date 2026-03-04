@@ -1,4 +1,4 @@
-﻿"""Core runtime settings for local MCP execution."""
+"""Core runtime settings for local MCP execution."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

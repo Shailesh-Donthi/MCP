@@ -1,11 +1,11 @@
-﻿"""
+"""
 Date Parser Utilities for MCP Tools
 
 Parses natural language date expressions into datetime objects.
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 
@@ -28,7 +28,7 @@ def parse_relative_date(date_str: str) -> Optional[datetime]:
         return None
 
     date_str = date_str.strip().lower()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Try ISO format first
     iso_result = _try_parse_iso(date_str)
@@ -184,7 +184,7 @@ def parse_date_range(
     Returns:
         Tuple of (start_date, end_date)
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Parse end date first (defaults to now)
     if end_str:

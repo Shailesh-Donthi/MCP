@@ -176,8 +176,8 @@ class RouteQueryToToolTests(unittest.TestCase):
     def test_default_query_route(self) -> None:
         self.assert_route(
             "abracadabra",
-            "get_personnel_distribution",
-            {"group_by": "rank"},
+            "search_personnel",
+            {},
         )
 
     def test_sort_phrase_not_treated_as_district(self) -> None:

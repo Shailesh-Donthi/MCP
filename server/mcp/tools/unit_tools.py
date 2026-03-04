@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit Query Tools for MCP
 
 Tools for querying unit hierarchy and structure.

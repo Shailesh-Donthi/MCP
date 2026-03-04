@@ -1,4 +1,4 @@
-﻿"""
+"""
 Base Tool Class for MCP Tools
 
 Provides common functionality for all MCP tools including

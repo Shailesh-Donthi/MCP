@@ -1,4 +1,4 @@
-﻿"""
+"""
 Personnel Query Tools for MCP
 
 Tools for querying personnel data with various filters and groupings.

@@ -1,4 +1,4 @@
-﻿"""Mongo collection name constants used across MCP tools."""
+"""Mongo collection name constants used across MCP tools."""
 
 
 class Collections:

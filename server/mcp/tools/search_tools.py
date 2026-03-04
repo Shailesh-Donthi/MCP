@@ -1,79 +1,51 @@
-﻿"""
-Search Tools for MCP
+"""V2 relationship-aware search tools for personnel/unit/assignment queries."""
 
-Tools for searching personnel, units, and other entities by name or attributes.
-"""
+from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
-from bson import ObjectId
 import re
-import copy
+from typing import Any, Dict, List, Optional
 
-from mcp.tools.base_tool import BaseTool
-from mcp.schemas.context_schema import UserContext
-from mcp.query_builder.builder import SafeQueryBuilder
+from bson import ObjectId
+
 from mcp.constants import Collections
-from mcp.router.extractors import normalize_common_entity_aliases, fuzzy_best_match
+from mcp.router.extractors import fuzzy_best_match, normalize_common_entity_aliases
+from mcp.schemas.context_schema import UserContext
+from mcp.tools.base_tool import BaseTool
+from mcp.repositories import AssignmentRepository, PersonnelRepository, ScopeContext, UnitRepository
 
 
 class SearchPersonnelTool(BaseTool):
-    """
-    Search for personnel by name, userId, badgeNo, mobile, or email.
-    Returns personnel details including their unit assignments.
-    """
+    """Search personnel with relationship enrichment enabled by default."""
 
     name = "search_personnel"
     description = (
         "Search for a person by name, userId, badge number, mobile, or email. "
-        "Returns their details including which unit(s) they belong to, their rank, "
-        "and designation. Use this to find 'Which unit does person X belong to?'"
+        "Returns enriched person details with assignments, unit, district, rank, "
+        "and designation context."
     )
     _PERSON_TITLE_PREFIX_RE = re.compile(
         r"^\s*(?:mr|mrs|ms|miss|dr|sri|shri|smt|mt)\.?\s+",
         re.IGNORECASE,
     )
 
+    def __init__(self, db):
+        super().__init__(db)
+        self._repo = PersonnelRepository(db)
+
     def get_input_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Person's name (partial match, case insensitive)",
-                },
-                "user_id": {
-                    "type": "string",
-                    "description": "Police User ID (8 digits)",
-                },
-                "badge_no": {
-                    "type": "string",
-                    "description": "Badge number",
-                },
-                "mobile": {
-                    "type": "string",
-                    "description": "Mobile number",
-                },
-                "email": {
-                    "type": "string",
-                    "description": "Email address",
-                },
-                "designation_name": {
-                    "type": "string",
-                    "description": "Designation name (case insensitive), e.g. SDPO",
-                },
-                "include_inactive": {
-                    "type": "boolean",
-                    "description": "Include inactive personnel",
-                    "default": False,
-                },
-                "page": {
-                    "type": "integer",
-                    "default": 1,
-                },
-                "page_size": {
-                    "type": "integer",
-                    "default": 20,
-                },
+                "name": {"type": "string", "description": "Person name"},
+                "user_id": {"type": "string", "description": "Police User ID"},
+                "badge_no": {"type": "string", "description": "Badge number"},
+                "mobile": {"type": "string", "description": "Mobile number"},
+                "email": {"type": "string", "description": "Email address"},
+                "designation_name": {"type": "string", "description": "Designation name"},
+                "district_name": {"type": "string", "description": "District name"},
+                "include_inactive": {"type": "boolean", "default": False},
+                "page": {"type": "integer", "default": 1},
+                "page_size": {"type": "integer", "default": 20},
             },
             "required": [],
         }
@@ -89,234 +61,333 @@ class SearchPersonnelTool(BaseTool):
         mobile = arguments.get("mobile")
         email = arguments.get("email")
         designation_name = arguments.get("designation_name")
-        include_inactive = arguments.get("include_inactive", False)
-        page, page_size, skip = self.get_pagination_params(arguments)
+        district_name = arguments.get("district_name")
+        include_inactive = bool(arguments.get("include_inactive", False))
+        page, page_size, _ = self.get_pagination_params(arguments)
 
-        # Validate at least one search param
-        if not any([name, user_id, badge_no, mobile, email, designation_name]):
+        if not any([name, user_id, badge_no, mobile, email, designation_name, district_name]):
             return self.format_error_response(
                 "MISSING_PARAMETER",
-                "Provide at least one search parameter: name, user_id, badge_no, mobile, email, or designation_name",
+                "Provide at least one search parameter: name, user_id, badge_no, mobile, email, designation_name, or district_name",
             )
 
-        search_params = {
-            "name": name,
-            "user_id": user_id,
-            "badge_no": badge_no,
-            "mobile": mobile,
-            "email": email,
-            "designation_name": designation_name,
-        }
-        designation_condition = await self._resolve_designation_condition(designation_name)
-        if designation_name and not designation_condition:
+        designation_filter_text = self._normalize_label(designation_name)
+        designation_id = await self._resolve_designation_id(designation_name)
+        designation_resolution = "resolved" if designation_id is not None else ("unresolved" if designation_name else None)
+
+        district_id = await self._resolve_district_id(district_name)
+        if district_name and district_id is None:
             return self.format_error_response(
                 "NOT_FOUND",
-                f"Designation not found: {designation_name}",
-                {"hint": "Try a valid designation value (for example: SDPO)."},
+                f"District not found: {district_name}",
+                {"hint": "Try a valid district value (for example: Guntur)."},
             )
-        search_conditions = self._build_search_conditions(
+        unit_ids_in_district: Optional[List[Any]] = None
+        if district_id:
+            unit_ids_in_district = await self._resolve_unit_ids_for_district(district_id)
+            if not unit_ids_in_district:
+                return self.format_success_response(
+                    query_type="search_personnel",
+                    data=[],
+                    total=0,
+                    page=page,
+                    page_size=page_size,
+                    metadata={"search_params": self._non_empty_params({"district_name": district_name})},
+                )
+
+        # When filters depend on enrichment (district-unit or designation text/id),
+        # pull a wider first page and post-filter deterministically.
+        needs_post_filter = bool(unit_ids_in_district or designation_name)
+        if needs_post_filter:
+            repo_page = 1
+            repo_page_size = min(self.max_results, max(page * page_size * 3, 200))
+        else:
+            repo_page = page
+            repo_page_size = page_size
+
+        scope_context = ScopeContext.from_user_context(context)
+        result = await self._repo.search(
             name=name,
             user_id=user_id,
             badge_no=badge_no,
             mobile=mobile,
             email=email,
+            designation_id=None,
+            include_inactive=include_inactive,
+            page=repo_page,
+            page_size=repo_page_size,
+            scope_context=scope_context,
         )
-        if designation_condition:
-            search_conditions.append(designation_condition)
-        base_query = self._build_base_query(search_conditions, include_inactive)
 
-        # Apply scope filter
-        query = await self.apply_scope_filter(base_query, context, "personnel")
+        rows = result.get("data", [])
+        rows = self._filter_rows_by_unit_ids(rows, unit_ids_in_district)
+        if designation_name:
+            rows = [
+                row
+                for row in rows
+                if self._row_matches_designation(
+                    row,
+                    designation_id=designation_id,
+                    designation_text=designation_filter_text,
+                )
+            ]
 
-        pipeline = self._build_personnel_search_pipeline(query, skip, page_size)
+        if needs_post_filter:
+            total = len(rows)
+            start = max(0, (page - 1) * page_size)
+            end = start + page_size
+            rows = rows[start:end]
+        else:
+            pagination = result.get("pagination", {})
+            total = int(pagination.get("total", 0) or 0)
 
-        results = await self.db[Collections.PERSONNEL_MASTER].aggregate(
-            pipeline
-        ).to_list(length=None)
-        results = await self._attach_current_assignments(results)
-
-        # Get total count
-        total = await self.db[Collections.PERSONNEL_MASTER].count_documents(query)
-
-        # Fallback for tolerant person-name resolution (titles, initials, punctuation)
-        # when name-only lookup returns no rows.
         if (
             total == 0
             and isinstance(name, str)
             and name.strip()
             and not any([user_id, badge_no, mobile, email])
         ):
-            best_name = await self._resolve_best_person_name(name, include_inactive=include_inactive)
+            best_name = await self._resolve_best_person_name(
+                name,
+                include_inactive=include_inactive,
+            )
             if best_name and best_name.strip().lower() != name.strip().lower():
-                search_conditions = self._build_search_conditions(
+                retry = await self._repo.search(
                     name=best_name,
                     user_id=user_id,
                     badge_no=badge_no,
                     mobile=mobile,
                     email=email,
+                    designation_id=None,
+                    include_inactive=include_inactive,
+                    page=repo_page,
+                    page_size=repo_page_size,
+                    scope_context=scope_context,
                 )
-                if designation_condition:
-                    search_conditions.append(designation_condition)
-                base_query = self._build_base_query(search_conditions, include_inactive)
-                query = await self.apply_scope_filter(base_query, context, "personnel")
-                pipeline = self._build_personnel_search_pipeline(query, skip, page_size)
-                results = await self.db[Collections.PERSONNEL_MASTER].aggregate(
-                    pipeline
-                ).to_list(length=None)
-                results = await self._attach_current_assignments(results)
-                total = await self.db[Collections.PERSONNEL_MASTER].count_documents(query)
-                if total > 0:
-                    metadata_name = {
-                        "name_search_input": name,
-                        "name_search_resolved": best_name,
-                    }
+                rows = retry.get("data", [])
+                rows = self._filter_rows_by_unit_ids(rows, unit_ids_in_district)
+                if designation_name:
+                    rows = [
+                        row
+                        for row in rows
+                        if self._row_matches_designation(
+                            row,
+                            designation_id=designation_id,
+                            designation_text=designation_filter_text,
+                        )
+                    ]
+                if needs_post_filter:
+                    total = len(rows)
+                    start = max(0, (page - 1) * page_size)
+                    end = start + page_size
+                    rows = rows[start:end]
                 else:
-                    metadata_name = {}
-            else:
-                metadata_name = {}
-        else:
-            metadata_name = {}
+                    pagination = retry.get("pagination", {})
+                    total = int(pagination.get("total", 0) or 0)
 
-        formatted_results = self._format_personnel_results(results)
-        metadata: Dict[str, Any] = {
-            "search_params": self._non_empty_params(search_params),
-        }
-        metadata.update(metadata_name)
-
-        # If the user gave a name, prefer exact full-name matches over broader partial matches.
-        # When duplicates share the same exact name, return all of those exact-name matches.
-        exact_override = await self._get_exact_name_override(
-            name=name,
-            user_id=user_id,
-            badge_no=badge_no,
-            mobile=mobile,
-            email=email,
-            scoped_query=query,
-        )
-        if exact_override is not None:
-            exact_results, exact_total, partial_total, exact_truncated = exact_override
-            exact_results = await self._attach_current_assignments(exact_results)
-            formatted_results = self._format_personnel_results(exact_results)
-            metadata.update({
-                "exact_name_match_applied": True,
-                "exact_name_match_count": exact_total,
-                "partial_name_match_count": total,
-                "exact_name_match_truncated": exact_truncated,
-            })
-            total = exact_total
-            page = 1
-            page_size = max(1, len(formatted_results))
+        formatted = [
+            self._normalize_person_row(row)
+            for row in rows
+            if isinstance(row, dict)
+        ]
 
         return self.format_success_response(
             query_type="search_personnel",
-            data=formatted_results,
+            data=formatted,
             total=total,
             page=page,
             page_size=page_size,
-            metadata=metadata,
+            metadata={
+                "search_params": self._non_empty_params(
+                    {
+                        "name": name,
+                        "user_id": user_id,
+                        "badge_no": badge_no,
+                        "mobile": mobile,
+                        "email": email,
+                        "designation_name": designation_name,
+                        "district_name": district_name,
+                    }
+                ),
+                "designation_resolution": designation_resolution,
+            },
         )
 
-    def _build_search_conditions(
-        self,
-        name: Optional[str],
-        user_id: Optional[str],
-        badge_no: Optional[str],
-        mobile: Optional[str],
-        email: Optional[str],
-    ) -> List[Dict[str, Any]]:
-        conditions: List[Dict[str, Any]] = []
-        if name:
-            name_patterns = self._build_person_name_patterns(name)
-            name_or_conditions: List[Dict[str, Any]] = []
-            for pattern in name_patterns:
-                name_or_conditions.extend(
-                    [
-                        {"name": {"$regex": pattern, "$options": "i"}},
-                        {"firstName": {"$regex": pattern, "$options": "i"}},
-                        {"lastName": {"$regex": pattern, "$options": "i"}},
-                    ]
-                )
-            conditions.append(
-                {
-                    "$or": name_or_conditions
-                }
-            )
-        if user_id:
-            conditions.append({"userId": user_id})
-        if badge_no:
-            conditions.append({"badgeNo": badge_no})
-        if mobile:
-            mobile_clean = re.sub(r"\D", "", mobile)
-            if len(mobile_clean) == 10:
-                conditions.append(
-                    {
-                        "$or": [
-                            {"mobile": mobile},
-                            {"mobile": {"$regex": mobile_clean}},
-                        ]
-                    }
-                )
-            else:
-                conditions.append({"mobile": {"$regex": mobile_clean}})
-        if email:
-            conditions.append({"email": {"$regex": email, "$options": "i"}})
-        return conditions
+    async def _resolve_designation_id(self, designation_name: Optional[str]) -> Optional[Any]:
+        if not designation_name:
+            return None
+        normalized = normalize_common_entity_aliases(str(designation_name).strip())
+        if not normalized:
+            return None
+        normalized = re.sub(r"\bSPDO\b", "SDPO", normalized, flags=re.IGNORECASE)
+        designation = await self.db[Collections.DESIGNATION_MASTER].find_one(
+            {
+                "name": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"},
+                "isDelete": False,
+            },
+            {"_id": 1},
+        )
+        if designation:
+            return designation["_id"]
+        names = await self.db[Collections.DESIGNATION_MASTER].distinct("name", {"isDelete": False})
+        best = fuzzy_best_match(normalized, names, cutoff=0.76)
+        if not best:
+            return None
+        designation = await self.db[Collections.DESIGNATION_MASTER].find_one(
+            {
+                "name": {"$regex": f"^{re.escape(best)}$", "$options": "i"},
+                "isDelete": False,
+            },
+            {"_id": 1},
+        )
+        return designation["_id"] if designation else None
 
-    def _strip_person_title_prefix(self, raw_name: str) -> str:
-        return re.sub(self._PERSON_TITLE_PREFIX_RE, "", str(raw_name or "")).strip()
+    async def _resolve_district_id(self, district_name: Optional[str]) -> Optional[str]:
+        if not district_name:
+            return None
+        normalized = normalize_common_entity_aliases(str(district_name).strip())
+        if not normalized:
+            return None
+        district = await self.db[Collections.DISTRICT].find_one(
+            {"name": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}, "isDelete": False},
+            {"_id": 1},
+        )
+        if district:
+            return str(district["_id"])
+        names = await self.db[Collections.DISTRICT].distinct("name", {"isDelete": False})
+        best = fuzzy_best_match(normalized, names, cutoff=0.76)
+        if not best:
+            return None
+        district = await self.db[Collections.DISTRICT].find_one(
+            {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False},
+            {"_id": 1},
+        )
+        return str(district["_id"]) if district else None
+
+    async def _resolve_unit_ids_for_district(self, district_id: str) -> List[ObjectId]:
+        if not ObjectId.is_valid(district_id):
+            return []
+        rows = await self.db[Collections.UNIT].find(
+            {"districtId": ObjectId(district_id), "isDelete": False},
+            {"_id": 1},
+        ).to_list(length=None)
+        return [row["_id"] for row in rows if isinstance(row, dict) and isinstance(row.get("_id"), ObjectId)]
+
+    def _filter_rows_by_unit_ids(
+        self,
+        rows: Any,
+        unit_ids: Optional[List[Any]],
+    ) -> List[Dict[str, Any]]:
+        dict_rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+        if not unit_ids:
+            return dict_rows
+
+        unit_id_str = {str(value) for value in unit_ids if value is not None}
+        if not unit_id_str:
+            return []
+
+        filtered: List[Dict[str, Any]] = []
+        for row in dict_rows:
+            assignments = row.get("assignments", [])
+            if isinstance(assignments, list):
+                if any(str((item or {}).get("unitId") or "") in unit_id_str for item in assignments if isinstance(item, dict)):
+                    filtered.append(row)
+                    continue
+
+            units = row.get("units", [])
+            if isinstance(units, list):
+                if any(
+                    str((item or {}).get("unitId") or (item or {}).get("_id") or "") in unit_id_str
+                    for item in units
+                    if isinstance(item, dict)
+                ):
+                    filtered.append(row)
+        return filtered
+
+    def _normalize_label(self, value: Optional[Any]) -> str:
+        if value is None:
+            return ""
+        normalized = normalize_common_entity_aliases(str(value))
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        normalized = re.sub(r"\bSPDO\b", "SDPO", normalized, flags=re.IGNORECASE)
+        return normalized.lower()
+
+    def _designation_text_match(self, candidate: Optional[Any], target: str) -> bool:
+        if not target:
+            return False
+        text = self._normalize_label(candidate)
+        if not text:
+            return False
+        return (
+            text == target
+            or text.startswith(f"{target} ")
+            or target.startswith(f"{text} ")
+            or (len(target) >= 4 and target in text)
+        )
+
+    def _row_matches_designation(
+        self,
+        row: Dict[str, Any],
+        *,
+        designation_id: Optional[Any],
+        designation_text: str,
+    ) -> bool:
+        if designation_id is None and not designation_text:
+            return True
+
+        def _match_dict(item: Dict[str, Any]) -> bool:
+            if designation_id is not None:
+                if str(item.get("designationId") or "") == str(designation_id):
+                    return True
+
+            for field in ("designationName", "designation_name", "postCode", "post_code"):
+                if self._designation_text_match(item.get(field), designation_text):
+                    return True
+
+            designation_value = item.get("designation")
+            if isinstance(designation_value, dict):
+                if designation_id is not None and str(designation_value.get("_id") or "") == str(designation_id):
+                    return True
+                if self._designation_text_match(designation_value.get("name"), designation_text):
+                    return True
+                if self._designation_text_match(designation_value.get("shortCode"), designation_text):
+                    return True
+            elif isinstance(designation_value, list):
+                for nested in designation_value:
+                    if isinstance(nested, dict):
+                        if designation_id is not None and str(nested.get("_id") or "") == str(designation_id):
+                            return True
+                        if self._designation_text_match(nested.get("name"), designation_text):
+                            return True
+                        if self._designation_text_match(nested.get("shortCode"), designation_text):
+                            return True
+            return False
+
+        if _match_dict(row):
+            return True
+
+        rank = row.get("rank")
+        if isinstance(rank, dict):
+            if self._designation_text_match(rank.get("name"), designation_text):
+                return True
+            if self._designation_text_match(rank.get("shortCode"), designation_text):
+                return True
+
+        for list_key in ("assignments", "units"):
+            payload = row.get(list_key)
+            if isinstance(payload, list):
+                for nested in payload:
+                    if isinstance(nested, dict) and _match_dict(nested):
+                        return True
+
+        return False
 
     def _canonical_person_name(self, raw_name: str) -> str:
         value = normalize_common_entity_aliases(str(raw_name or ""))
         value = re.sub(r"\s+", " ", value).strip()
-        value = self._strip_person_title_prefix(value)
+        value = re.sub(self._PERSON_TITLE_PREFIX_RE, "", value)
         value = re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
         return re.sub(r"\s+", " ", value)
-
-    def _build_initials_flexible_name_pattern(self, raw_name: str) -> Optional[str]:
-        name = self._strip_person_title_prefix(normalize_common_entity_aliases(str(raw_name or "")))
-        tokens = re.findall(r"[A-Za-z]+", name)
-        if len(tokens) < 2:
-            return None
-        # Compact initial clusters like "GV Ramana Murthy" -> "G V Ramana Murthy"
-        first = tokens[0]
-        if (
-            len(first) >= 2
-            and len(first) <= 4
-            and first.isalpha()
-            and first.upper() == first
-            and len(tokens) > 1
-            and len(tokens[1]) > 1
-        ):
-            tokens = list(first) + tokens[1:]
-
-        initial_tokens: List[str] = []
-        remaining = list(tokens)
-        while remaining and len(remaining[0]) == 1:
-            initial_tokens.append(remaining.pop(0))
-        if not initial_tokens:
-            return None
-
-        initials_pattern = r"\s*".join(f"{re.escape(letter)}\\.?" for letter in initial_tokens)
-        if not remaining:
-            return rf"\b{initials_pattern}\b"
-        rest_pattern = r"\s+".join(re.escape(token) for token in remaining)
-        return rf"\b{initials_pattern}\s+{rest_pattern}\b"
-
-    def _build_person_name_patterns(self, raw_name: str) -> List[str]:
-        normalized = normalize_common_entity_aliases(str(raw_name or ""))
-        normalized = re.sub(r"\s+", " ", normalized).strip()
-        stripped = self._strip_person_title_prefix(normalized)
-        patterns: List[str] = []
-        for candidate in [normalized, stripped]:
-            if not candidate:
-                continue
-            escaped = SafeQueryBuilder.escape_regex(candidate)
-            if escaped and escaped.lower() not in {p.lower() for p in patterns}:
-                patterns.append(escaped)
-        initials_pattern = self._build_initials_flexible_name_pattern(stripped or normalized)
-        if initials_pattern and initials_pattern.lower() not in {p.lower() for p in patterns}:
-            patterns.append(initials_pattern)
-        return patterns
 
     async def _resolve_best_person_name(
         self,
@@ -327,427 +398,63 @@ class SearchPersonnelTool(BaseTool):
         probe = self._canonical_person_name(raw_name)
         if not probe:
             return None
-
         names_filter: Dict[str, Any] = {"isDelete": False}
         if not include_inactive:
             names_filter["isActive"] = True
         names = await self.db[Collections.PERSONNEL_MASTER].distinct("name", names_filter)
-        if not names:
-            return None
-
         canonical_to_original: Dict[str, str] = {}
         for item in names:
-            if not isinstance(item, str):
-                continue
-            key = self._canonical_person_name(item)
-            if key and key not in canonical_to_original:
-                canonical_to_original[key] = item
-        if not canonical_to_original:
-            return None
+            if isinstance(item, str):
+                key = self._canonical_person_name(item)
+                if key and key not in canonical_to_original:
+                    canonical_to_original[key] = item
         if probe in canonical_to_original:
             return canonical_to_original[probe]
-
         best = fuzzy_best_match(probe, canonical_to_original.keys(), cutoff=0.78)
         if not best:
             return None
         return canonical_to_original.get(best)
 
-    async def _resolve_designation_condition(
-        self,
-        designation_name: Optional[str],
-    ) -> Optional[Dict[str, Any]]:
-        if not designation_name:
-            return None
-        normalized = normalize_common_entity_aliases(str(designation_name).strip())
-        if not normalized:
-            return None
-        if re.fullmatch(r"[A-Za-z]{2,10}", normalized) and normalized.lower().endswith("s"):
-            normalized = normalized[:-1]
-        # Common typo/alias normalization for this domain.
-        normalized = re.sub(r"\bSPDO\b", "SDPO", normalized, flags=re.IGNORECASE)
-        designation = await self.db[Collections.DESIGNATION_MASTER].find_one(
-            {
-                "name": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"},
-                "isDelete": False,
-            },
-            {"_id": 1},
-        )
-        if not designation:
-            names = await self.db[Collections.DESIGNATION_MASTER].distinct("name", {"isDelete": False})
-            best = fuzzy_best_match(normalized, names, cutoff=0.76)
-            if best:
-                designation = await self.db[Collections.DESIGNATION_MASTER].find_one(
-                    {
-                        "name": {"$regex": f"^{re.escape(best)}$", "$options": "i"},
-                        "isDelete": False,
-                    },
-                    {"_id": 1},
-                )
-        if not designation:
-            return None
-        return {"units.designationId": designation["_id"]}
-
-    async def _get_exact_name_override(
-        self,
-        *,
-        name: Optional[str],
-        user_id: Optional[str],
-        badge_no: Optional[str],
-        mobile: Optional[str],
-        email: Optional[str],
-        scoped_query: Dict[str, Any],
-    ) -> Optional[Tuple[List[Dict[str, Any]], int, int, bool]]:
-        """Return exact full-name matches when user searched by name only and exacts exist."""
-        if not name or any([user_id, badge_no, mobile, email]):
-            return None
-
-        exact_name = re.sub(r"\s+", " ", str(name).strip())
-        if not exact_name:
-            return None
-
-        exact_query = copy.deepcopy(scoped_query)
-        exact_condition = {
-            "name": {"$regex": f"^{re.escape(exact_name)}$", "$options": "i"},
+    def _normalize_person_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = dict(row)
+        normalized["_id"] = str(normalized.get("_id") or "")
+        rank = normalized.get("rank")
+        if isinstance(rank, list):
+            rank = rank[0] if rank else {}
+        rank_obj = rank if isinstance(rank, dict) else {}
+        normalized["rank"] = {
+            "name": rank_obj.get("name") or normalized.get("rankName"),
+            "shortCode": rank_obj.get("shortCode") or rank_obj.get("short_code") or normalized.get("rankShortCode"),
         }
-        and_conditions = exact_query.get("$and")
-        if isinstance(and_conditions, list):
-            and_conditions.append(exact_condition)
-        else:
-            exact_query["$and"] = [exact_condition]
-
-        exact_total = await self.db[Collections.PERSONNEL_MASTER].count_documents(exact_query)
-        if exact_total <= 0:
-            return None
-
-        fetch_limit = min(max(1, exact_total), self.max_results)
-        exact_results = await self.db[Collections.PERSONNEL_MASTER].aggregate(
-            self._build_personnel_search_pipeline(exact_query, 0, fetch_limit)
-        ).to_list(length=None)
-
-        partial_total = await self.db[Collections.PERSONNEL_MASTER].count_documents(scoped_query)
-        return exact_results, exact_total, partial_total, exact_total > fetch_limit
-
-    def _build_base_query(
-        self,
-        search_conditions: List[Dict[str, Any]],
-        include_inactive: bool,
-    ) -> Dict[str, Any]:
-        base_query: Dict[str, Any] = {"isDelete": False, "$and": search_conditions}
-        if not include_inactive:
-            base_query["isActive"] = True
-        return base_query
-
-    def _build_personnel_search_pipeline(
-        self,
-        query: Dict[str, Any],
-        skip: int,
-        page_size: int,
-    ) -> List[Dict[str, Any]]:
-        return [
-            {"$match": query},
-            # Add stable tie-breakers so ambiguous-name searches return a consistent first match.
-            {"$sort": {"name": 1, "userId": 1, "_id": 1}},
-            {"$skip": skip},
-            {"$limit": page_size},
-            {
-                "$lookup": {
-                    "from": Collections.RANK_MASTER,
-                    "localField": "rankId",
-                    "foreignField": "_id",
-                    "as": "rankData",
-                }
-            },
-            {"$unwind": {"path": "$rankData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.DEPARTMENT,
-                    "localField": "departmentId",
-                    "foreignField": "_id",
-                    "as": "departmentData",
-                }
-            },
-            {"$unwind": {"path": "$departmentData", "preserveNullAndEmptyArrays": True}},
-            {"$unwind": {"path": "$units", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.UNIT,
-                    "localField": "units.unitId",
-                    "foreignField": "_id",
-                    "as": "unitData",
-                }
-            },
-            {"$unwind": {"path": "$unitData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.DISTRICT,
-                    "localField": "unitData.districtId",
-                    "foreignField": "_id",
-                    "as": "districtData",
-                }
-            },
-            {"$unwind": {"path": "$districtData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.DESIGNATION_MASTER,
-                    "localField": "units.designationId",
-                    "foreignField": "_id",
-                    "as": "designationData",
-                }
-            },
-            {"$unwind": {"path": "$designationData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$group": {
-                    "_id": "$_id",
-                    "name": {"$first": "$name"},
-                    "firstName": {"$first": "$firstName"},
-                    "lastName": {"$first": "$lastName"},
-                    "userId": {"$first": "$userId"},
-                    "badgeNo": {"$first": "$badgeNo"},
-                    "mobile": {"$first": "$mobile"},
-                    "email": {"$first": "$email"},
-                    "gender": {"$first": "$gender"},
-                    "dateOfBirth": {"$first": "$dateOfBirth"},
-                    "fatherName": {"$first": "$fatherName"},
-                    "address": {"$first": "$address"},
-                    "bloodGroup": {"$first": "$bloodGroup"},
-                    "dateOfJoining": {"$first": "$dateOfJoining"},
-                    "dateOfRetirement": {"$first": "$dateOfRetirement"},
-                    "isActive": {"$first": "$isActive"},
-                    "rankName": {"$first": "$rankData.name"},
-                    "rankShortCode": {"$first": "$rankData.shortCode"},
-                    "departmentName": {"$first": "$departmentData.name"},
-                    "units": {
-                        "$push": {
-                            "unitId": {"$toString": "$unitData._id"},
-                            "unitName": "$unitData.name",
-                            "districtName": "$districtData.name",
-                            "designationName": "$designationData.name",
-                        }
-                    },
-                }
-            },
-            {
-                "$project": {
-                    "_id": {"$toString": "$_id"},
-                    "name": 1,
-                    "firstName": 1,
-                    "lastName": 1,
-                    "userId": 1,
-                    "badgeNo": 1,
-                    "mobile": 1,
-                    "email": 1,
-                    "gender": 1,
-                    "dateOfBirth": 1,
-                    "fatherName": 1,
-                    "address": 1,
-                    "bloodGroup": 1,
-                    "dateOfJoining": 1,
-                    "dateOfRetirement": 1,
-                    "isActive": 1,
-                    "rank": {"name": "$rankName", "shortCode": "$rankShortCode"},
-                    "department": "$departmentName",
-                    "units": {
-                        "$filter": {
-                            "input": "$units",
-                            "cond": {"$ne": ["$$this.unitId", None]},
-                        }
-                    },
-                }
-            },
-            # $group does not guarantee preserving prior sort order; sort again on final rows.
-            {"$sort": {"name": 1, "userId": 1, "_id": 1}},
-        ]
-
-    def _format_personnel_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        formatted: List[Dict[str, Any]] = []
-        for person in results:
-            unit_summary = self._build_unit_summary(person.get("units", []))
-            assignment_summary = self._build_unit_summary(person.get("assignments", []))
-            primary_unit = (
-                assignment_summary[0]
-                if assignment_summary
-                else (unit_summary[0] if unit_summary else "Not assigned")
-            )
-            formatted.append(
-                {
-                    **person,
-                    "unit_summary": unit_summary,
-                    "assignment_summary": assignment_summary,
-                    "primary_unit": primary_unit,
-                }
-            )
-        return formatted
-
-    def _build_unit_summary(self, units: List[Dict[str, Any]]) -> List[str]:
-        summary: List[str] = []
-        for unit in units:
-            if not unit.get("unitName"):
-                continue
-            text = unit["unitName"]
-            if unit.get("districtName"):
-                text += f" ({unit['districtName']})"
-            if unit.get("designationName"):
-                text += f" - {unit['designationName']}"
-            summary.append(text)
-        return summary
-
-    async def _attach_current_assignments(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Hydrate current assignments from assignment_master for consistent posting data."""
-        if not results:
-            return results
-
-        user_ids: List[ObjectId] = []
-        id_keys: List[str] = []
-        for row in results:
-            row_id = str(row.get("_id") or "").strip()
-            if not row_id or not ObjectId.is_valid(row_id):
-                continue
-            id_keys.append(row_id)
-            user_ids.append(ObjectId(row_id))
-
-        if not user_ids:
-            return results
-
-        pipeline: List[Dict[str, Any]] = [
-            {
-                "$match": {
-                    "userId": {"$in": user_ids},
-                    "isDelete": False,
-                    "isActive": True,
-                }
-            },
-            {
-                "$lookup": {
-                    "from": Collections.UNIT,
-                    "localField": "unitId",
-                    "foreignField": "_id",
-                    "as": "unitData",
-                }
-            },
-            {"$unwind": {"path": "$unitData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.DISTRICT,
-                    "localField": "unitData.districtId",
-                    "foreignField": "_id",
-                    "as": "districtData",
-                }
-            },
-            {"$unwind": {"path": "$districtData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.DESIGNATION_MASTER,
-                    "localField": "designationId",
-                    "foreignField": "_id",
-                    "as": "designationData",
-                }
-            },
-            {"$unwind": {"path": "$designationData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$project": {
-                    "userId": {"$toString": "$userId"},
-                    "unitId": {"$toString": "$unitId"},
-                    "unitName": "$unitData.name",
-                    "districtName": "$districtData.name",
-                    "designationName": "$designationData.name",
-                }
-            },
-            {"$sort": {"unitName": 1, "designationName": 1}},
-        ]
-        assignment_rows = await self.db[Collections.ASSIGNMENT_MASTER].aggregate(pipeline).to_list(length=None)
-
-        by_user: Dict[str, List[Dict[str, Any]]] = {k: [] for k in id_keys}
-        for row in assignment_rows:
-            user_key = str(row.get("userId") or "").strip()
-            if not user_key:
-                continue
-            assignment = {
-                "unitId": str(row.get("unitId") or ""),
-                "unitName": row.get("unitName"),
-                "districtName": row.get("districtName"),
-                "designationName": row.get("designationName"),
-            }
-            if user_key not in by_user:
-                by_user[user_key] = []
-            duplicate = any(
-                (
-                    str(existing.get("unitId") or ""),
-                    str(existing.get("unitName") or ""),
-                    str(existing.get("designationName") or ""),
-                )
-                == (
-                    str(assignment.get("unitId") or ""),
-                    str(assignment.get("unitName") or ""),
-                    str(assignment.get("designationName") or ""),
-                )
-                for existing in by_user[user_key]
-            )
-            if not duplicate:
-                by_user[user_key].append(assignment)
-
-        for row in results:
-            row_id = str(row.get("_id") or "").strip()
-            assignments = by_user.get(row_id, [])
-            row["assignments"] = assignments
-            if assignments and (not isinstance(row.get("units"), list) or len(row.get("units", [])) == 0):
-                row["units"] = [
-                    {
-                        "unitId": assignment.get("unitId"),
-                        "unitName": assignment.get("unitName"),
-                        "districtName": assignment.get("districtName"),
-                        "designationName": assignment.get("designationName"),
-                    }
-                    for assignment in assignments
-                    if assignment.get("unitId") or assignment.get("unitName")
-                ]
-
-        return results
+        return normalized
 
     def _non_empty_params(self, params: Dict[str, Optional[str]]) -> Dict[str, str]:
-        return {k: v for k, v in params.items() if v}
+        return {k: v for k, v in params.items() if isinstance(v, str) and v.strip()}
 
 
 class SearchUnitTool(BaseTool):
-    """Search for units by name, code, or location"""
+    """Search units with relationship enrichment enabled by default."""
 
     name = "search_unit"
     description = (
         "Search for a unit/station by name, police reference ID, or city. "
-        "Returns unit details including district, personnel count, and responsible officer."
+        "Returns enriched unit details with district, parent unit, and responsible officer."
     )
+
+    def __init__(self, db):
+        super().__init__(db)
+        self._repo = UnitRepository(db)
 
     def get_input_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Unit name (partial match, case insensitive)",
-                },
-                "police_reference_id": {
-                    "type": "string",
-                    "description": "Police reference/code",
-                },
-                "city": {
-                    "type": "string",
-                    "description": "City name",
-                },
-                "district_name": {
-                    "type": "string",
-                    "description": "Filter by district name",
-                },
-                "unit_type_name": {
-                    "type": "string",
-                    "description": "Filter by unit type name (case insensitive), e.g. Range",
-                },
-                "page": {
-                    "type": "integer",
-                    "default": 1,
-                },
-                "page_size": {
-                    "type": "integer",
-                    "default": 20,
-                },
+                "name": {"type": "string", "description": "Unit name"},
+                "police_reference_id": {"type": "string", "description": "Unit police reference ID"},
+                "city": {"type": "string", "description": "City"},
+                "district_name": {"type": "string", "description": "District name"},
+                "page": {"type": "integer", "default": 1},
+                "page_size": {"type": "integer", "default": 20},
             },
             "required": [],
         }
@@ -761,250 +468,82 @@ class SearchUnitTool(BaseTool):
         police_ref_id = arguments.get("police_reference_id")
         city = arguments.get("city")
         district_name = arguments.get("district_name")
-        unit_type_name = arguments.get("unit_type_name")
-        page, page_size, skip = self.get_pagination_params(arguments)
+        page, page_size, _ = self.get_pagination_params(arguments)
 
-        # Validate at least one search param
-        if not any([name, police_ref_id, city, district_name, unit_type_name]):
+        if not any([name, police_ref_id, city, district_name]):
             return self.format_error_response(
                 "MISSING_PARAMETER",
-                "Provide at least one search parameter: name, police_reference_id, city, district_name, or unit_type_name",
+                "Provide at least one search parameter: name, police_reference_id, city, or district_name",
             )
 
-        search_params = {
-            "name": name,
-            "police_reference_id": police_ref_id,
-            "city": city,
-            "district_name": district_name,
-            "unit_type_name": unit_type_name,
-        }
-        search_conditions = self._build_unit_search_conditions(name, police_ref_id, city)
-        district_condition = await self._resolve_district_condition(district_name)
-        if district_condition:
-            search_conditions.append(district_condition)
-        unit_type_condition = await self._resolve_unit_type_condition(unit_type_name)
-        if unit_type_name and not unit_type_condition:
-            return self.format_error_response(
-                "NOT_FOUND",
-                f"Unit type not found: {unit_type_name}",
-                {"hint": "Try a valid unit type (for example: Range, Police Station, District Police Office)."},
-            )
-        if unit_type_condition:
-            search_conditions.append(unit_type_condition)
-        base_query = self._build_unit_base_query(search_conditions)
-
-        # Apply scope filter
-        query = await self.apply_scope_filter(base_query, context, "unit")
-
-        pipeline = self._build_unit_search_pipeline(query, skip, page_size)
-
-        results = await self.db[Collections.UNIT].aggregate(pipeline).to_list(length=None)
-        total = await self.db[Collections.UNIT].count_documents(query)
-
-        # Fuzzy retry for common misspellings/aliases (e.g., Arunelpet -> Arundelpet).
-        if (
-            total == 0
-            and isinstance(name, str)
-            and name.strip()
-            and not police_ref_id
-            and not city
-            and not district_name
-            and not unit_type_name
-        ):
-            unit_names = await self.db[Collections.UNIT].distinct("name", {"isDelete": False})
-            best = fuzzy_best_match(name, unit_names, cutoff=0.76)
-            if isinstance(best, str) and best.strip() and best.strip().lower() != name.strip().lower():
-                search_conditions = self._build_unit_search_conditions(best, police_ref_id, city)
-                if district_condition:
-                    search_conditions.append(district_condition)
-                query = await self.apply_scope_filter(self._build_unit_base_query(search_conditions), context, "unit")
-                pipeline = self._build_unit_search_pipeline(query, skip, page_size)
-                results = await self.db[Collections.UNIT].aggregate(pipeline).to_list(length=None)
-                total = await self.db[Collections.UNIT].count_documents(query)
+        district_id = await self._resolve_district_id(district_name)
+        scope_context = ScopeContext.from_user_context(context)
+        result = await self._repo.search(
+            name=name,
+            police_reference_id=police_ref_id,
+            city=city,
+            district_id=district_id,
+            page=page,
+            page_size=page_size,
+            scope_context=scope_context,
+        )
+        rows = result.get("data", [])
+        pagination = result.get("pagination", {})
+        total = int(pagination.get("total", 0) or 0)
 
         return self.format_success_response(
             query_type="search_unit",
-            data=results,
+            data=[row for row in rows if isinstance(row, dict)],
             total=total,
             page=page,
             page_size=page_size,
             metadata={
-                "search_params": self._non_empty_params(search_params),
+                "search_params": self._non_empty_params(
+                    {
+                        "name": name,
+                        "police_reference_id": police_ref_id,
+                        "city": city,
+                        "district_name": district_name,
+                    }
+                )
             },
         )
 
-    def _build_unit_search_conditions(
-        self,
-        name: Optional[str],
-        police_ref_id: Optional[str],
-        city: Optional[str],
-    ) -> List[Dict[str, Any]]:
-        conditions: List[Dict[str, Any]] = []
-        if name:
-            name = normalize_common_entity_aliases(name)
-            escaped_name = SafeQueryBuilder.escape_regex(name)
-            conditions.append({"name": {"$regex": escaped_name, "$options": "i"}})
-        if police_ref_id:
-            conditions.append({"policeReferenceId": {"$regex": police_ref_id, "$options": "i"}})
-        if city:
-            escaped_city = SafeQueryBuilder.escape_regex(city)
-            conditions.append({"city": {"$regex": escaped_city, "$options": "i"}})
-        return conditions
-
-    async def _resolve_district_condition(
-        self,
-        district_name: Optional[str],
-    ) -> Optional[Dict[str, Any]]:
+    async def _resolve_district_id(self, district_name: Optional[str]) -> Optional[str]:
         if not district_name:
             return None
-        district_name = normalize_common_entity_aliases(district_name)
+        normalized = normalize_common_entity_aliases(str(district_name).strip())
         district = await self.db[Collections.DISTRICT].find_one(
-            {"name": {"$regex": f"^{district_name}$", "$options": "i"}, "isDelete": False}
+            {"name": {"$regex": f"^{re.escape(normalized)}$", "$options": "i"}, "isDelete": False},
+            {"_id": 1},
         )
-        if not district:
-            names = await self.db[Collections.DISTRICT].distinct("name", {"isDelete": False})
-            best = fuzzy_best_match(district_name, names, cutoff=0.76)
-            if best:
-                district = await self.db[Collections.DISTRICT].find_one(
-                    {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False}
-                )
-        if not district:
-            return None
-        return {"districtId": district["_id"]}
-
-    async def _resolve_unit_type_condition(
-        self,
-        unit_type_name: Optional[str],
-    ) -> Optional[Dict[str, Any]]:
-        if not unit_type_name:
-            return None
-        normalized_name = normalize_common_entity_aliases(unit_type_name)
-        normalized_name = re.sub(r"\s+", " ", normalized_name).strip()
-        unit_type = await self.db[Collections.UNIT_TYPE].find_one(
-            {"name": {"$regex": f"^{re.escape(normalized_name)}$", "$options": "i"}, "isDelete": False}
-        )
-        if not unit_type:
-            names = await self.db[Collections.UNIT_TYPE].distinct("name", {"isDelete": False})
-            best = fuzzy_best_match(normalized_name, names, cutoff=0.76)
-            if best:
-                unit_type = await self.db[Collections.UNIT_TYPE].find_one(
-                    {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False}
-                )
-        if not unit_type:
-            return None
-        return {"unitTypeId": unit_type["_id"]}
-
-    def _build_unit_base_query(self, search_conditions: List[Dict[str, Any]]) -> Dict[str, Any]:
-        base_query: Dict[str, Any] = {"isDelete": False}
-        if search_conditions:
-            base_query["$and"] = search_conditions
-        return base_query
-
-    def _build_unit_search_pipeline(
-        self,
-        query: Dict[str, Any],
-        skip: int,
-        page_size: int,
-    ) -> List[Dict[str, Any]]:
-        return [
-            {"$match": query},
-            {"$sort": {"name": 1}},
-            {"$skip": skip},
-            {"$limit": page_size},
-            {
-                "$lookup": {
-                    "from": Collections.DISTRICT,
-                    "localField": "districtId",
-                    "foreignField": "_id",
-                    "as": "districtData",
-                }
-            },
-            {"$unwind": {"path": "$districtData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.UNIT_TYPE,
-                    "localField": "unitTypeId",
-                    "foreignField": "_id",
-                    "as": "unitTypeData",
-                }
-            },
-            {"$unwind": {"path": "$unitTypeData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.PERSONNEL_MASTER,
-                    "localField": "responsibleUserId",
-                    "foreignField": "_id",
-                    "as": "responsibleUserData",
-                }
-            },
-            {"$unwind": {"path": "$responsibleUserData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$lookup": {
-                    "from": Collections.UNIT,
-                    "localField": "parentUnitId",
-                    "foreignField": "_id",
-                    "as": "parentUnitData",
-                }
-            },
-            {"$unwind": {"path": "$parentUnitData", "preserveNullAndEmptyArrays": True}},
-            {
-                "$project": {
-                    "_id": {"$toString": "$_id"},
-                    "name": 1,
-                    "policeReferenceId": 1,
-                    "city": 1,
-                    "address1": 1,
-                    "phone": 1,
-                    "email": 1,
-                    "district": {
-                        "id": {"$toString": "$districtData._id"},
-                        "name": "$districtData.name",
-                    },
-                    "unitType": "$unitTypeData.name",
-                    "parentUnit": {
-                        "id": {"$toString": "$parentUnitData._id"},
-                        "name": "$parentUnitData.name",
-                    },
-                    "responsibleOfficer": {
-                        "id": {"$toString": "$responsibleUserData._id"},
-                        "name": "$responsibleUserData.name",
-                        "userId": "$responsibleUserData.userId",
-                    },
-                    "personnelCount": {"$size": {"$ifNull": ["$unitPersonnelList", []]}},
-                    "isActive": 1,
-                }
-            },
-        ]
+        if district:
+            return str(district["_id"])
+        return None
 
     def _non_empty_params(self, params: Dict[str, Optional[str]]) -> Dict[str, str]:
-        return {k: v for k, v in params.items() if v}
+        return {k: v for k, v in params.items() if isinstance(v, str) and v.strip()}
 
 
 class CheckResponsibleUserTool(BaseTool):
-    """
-    Check if a person is a responsible user (SHO/in-charge) of any unit.
-    Returns the units where they are the responsible officer.
-    """
+    """Check whether a person is the responsible officer for any unit."""
 
     name = "check_responsible_user"
     description = (
-        "Check if a person is a responsible user (SHO/Station House Officer/in-charge) "
-        "of any unit. Use this when asked 'Is X a responsible user?', 'Which unit does X head?', "
-        "'Is X an SHO?', 'What unit is X in charge of?'"
+        "Check if a person is the responsible officer (SHO/in-charge) of any unit "
+        "and return matching units with district context."
     )
+
+    def __init__(self, db):
+        super().__init__(db)
+        self._person_repo = PersonnelRepository(db)
 
     def get_input_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Person's name to check",
-                },
-                "user_id": {
-                    "type": "string",
-                    "description": "Person's user ID",
-                },
+                "name": {"type": "string", "description": "Person name"},
+                "user_id": {"type": "string", "description": "Person user ID"},
             },
             "required": [],
         }
@@ -1016,33 +555,20 @@ class CheckResponsibleUserTool(BaseTool):
     ) -> Dict[str, Any]:
         name = arguments.get("name")
         user_id = arguments.get("user_id")
-
         if not name and not user_id:
-            return self.format_error_response(
-                "MISSING_PARAMETER",
-                "Provide name or user_id to check",
-            )
+            return self.format_error_response("MISSING_PARAMETER", "Provide name or user_id to check")
 
-        # Step 1: Find the person first
-        person_query: Dict[str, Any] = {"isDelete": False, "isActive": True}
-
-        if name:
-            escaped_name = SafeQueryBuilder.escape_regex(name)
-            person_query["$or"] = [
-                {"name": {"$regex": escaped_name, "$options": "i"}},
-                {"firstName": {"$regex": escaped_name, "$options": "i"}},
-            ]
-
-        if user_id:
-            person_query["userId"] = user_id
-
-        # Find matching personnel
-        personnel = await self.db[Collections.PERSONNEL_MASTER].find(
-            person_query,
-            {"_id": 1, "name": 1, "userId": 1}
-        ).to_list(length=10)
-
-        if not personnel:
+        scope_context = ScopeContext.from_user_context(context)
+        person_rows = await self._person_repo.search(
+            name=name,
+            user_id=user_id,
+            include_inactive=False,
+            page=1,
+            page_size=10,
+            scope_context=scope_context,
+        )
+        people = person_rows.get("data", []) if isinstance(person_rows, dict) else []
+        if not people:
             return self.format_success_response(
                 query_type="check_responsible_user",
                 data={
@@ -1054,85 +580,137 @@ class CheckResponsibleUserTool(BaseTool):
                 total=0,
             )
 
-        # Step 2: Check if any of these personnel are responsible users of units
-        personnel_ids = [p["_id"] for p in personnel]
-        person_names = {str(p["_id"]): p.get("name", "Unknown") for p in personnel}
-
-        # Find units where these personnel are responsible users
-        unit_query: Dict[str, Any] = {
-            "isDelete": False,
-            "responsibleUserId": {"$in": personnel_ids},
-        }
-
-        # Apply scope filter
-        unit_query = await self.apply_scope_filter(unit_query, context, "unit")
-
-        pipeline = [
-            {"$match": unit_query},
-            # Lookup district
-            {
-                "$lookup": {
-                    "from": Collections.DISTRICT,
-                    "localField": "districtId",
-                    "foreignField": "_id",
-                    "as": "districtData",
-                }
-            },
-            {"$unwind": {"path": "$districtData", "preserveNullAndEmptyArrays": True}},
-            # Lookup unit type
-            {
-                "$lookup": {
-                    "from": Collections.UNIT_TYPE,
-                    "localField": "unitTypeId",
-                    "foreignField": "_id",
-                    "as": "unitTypeData",
-                }
-            },
-            {"$unwind": {"path": "$unitTypeData", "preserveNullAndEmptyArrays": True}},
-            # Project
-            {
-                "$project": {
-                    "_id": {"$toString": "$_id"},
-                    "name": 1,
-                    "policeReferenceId": 1,
-                    "city": 1,
-                    "responsibleUserId": {"$toString": "$responsibleUserId"},
-                    "district": "$districtData.name",
-                    "unitType": "$unitTypeData.name",
-                    "phone": 1,
-                }
-            },
-        ]
-
-        units = await self.db[Collections.UNIT].aggregate(pipeline).to_list(length=None)
-
-        # Add person name to each unit
-        for unit in units:
-            resp_id = unit.get("responsibleUserId")
-            unit["responsibleUserName"] = person_names.get(resp_id, "Unknown")
-
-        is_responsible = len(units) > 0
-        person_name = personnel[0].get("name", name)
-
-        if is_responsible:
-            message = f"Yes, {person_name} is the responsible user (in-charge) of {len(units)} unit(s)."
-        else:
-            message = f"No, {person_name} is not a responsible user of any unit."
-
+        person_ids = [ObjectId(p["_id"]) for p in people if isinstance(p, dict) and ObjectId.is_valid(str(p.get("_id")))]
+        unit_query = {"isDelete": False, "responsibleUserId": {"$in": person_ids}}
+        scoped_query = await self.apply_scope_filter(unit_query, context, "unit")
+        units = await self.db[Collections.UNIT].find(scoped_query).to_list(length=100)
         return self.format_success_response(
             query_type="check_responsible_user",
             data={
                 "person_found": True,
-                "person_name": person_name,
-                "is_responsible_user": is_responsible,
-                "message": message,
+                "person_name": str(people[0].get("name") or (name or user_id)),
+                "is_responsible_user": len(units) > 0,
                 "units": units,
                 "unit_count": len(units),
             },
             total=len(units),
+        )
+
+
+class SearchAssignmentTool(BaseTool):
+    """Search assignment records with personnel/unit enrichment."""
+
+    name = "search_assignment"
+    description = (
+        "Search assignment records by personnel (name/user_id), unit (unit_id/unit_name), "
+        "or post code."
+    )
+
+    def __init__(self, db):
+        super().__init__(db)
+        self._repo = AssignmentRepository(db)
+
+    def get_input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "user_id": {"type": "string"},
+                "unit_id": {"type": "string"},
+                "unit_name": {"type": "string"},
+                "post_code": {"type": "string"},
+                "include_inactive": {"type": "boolean", "default": False},
+                "page": {"type": "integer", "default": 1},
+                "page_size": {"type": "integer", "default": 20},
+            },
+            "required": [],
+        }
+
+    async def execute(
+        self,
+        arguments: Dict[str, Any],
+        context: UserContext,
+    ) -> Dict[str, Any]:
+        name = arguments.get("name")
+        user_id = arguments.get("user_id")
+        unit_id = arguments.get("unit_id")
+        unit_name = arguments.get("unit_name")
+        post_code = arguments.get("post_code")
+        include_inactive = bool(arguments.get("include_inactive", False))
+        page, page_size, _ = self.get_pagination_params(arguments)
+
+        if not any([name, user_id, unit_id, unit_name, post_code]):
+            return self.format_error_response(
+                "MISSING_PARAMETER",
+                "Provide at least one search parameter: name, user_id, unit_id, unit_name, or post_code",
+            )
+
+        personnel_id = await self._resolve_personnel_id(name=name, user_id=user_id)
+        resolved_unit_id = await self._resolve_unit_id(unit_id=unit_id, unit_name=unit_name, context=context)
+        scope_context = ScopeContext.from_user_context(context)
+
+        result = await self._repo.search(
+            personnel_id=personnel_id,
+            unit_id=resolved_unit_id,
+            post_code=post_code,
+            include_inactive=include_inactive,
+            page=page,
+            page_size=page_size,
+            scope_context=scope_context,
+        )
+        rows = result.get("data", [])
+        pagination = result.get("pagination", {})
+        total = int(pagination.get("total", 0) or 0)
+
+        return self.format_success_response(
+            query_type="search_assignment",
+            data=[row for row in rows if isinstance(row, dict)],
+            total=total,
+            page=page,
+            page_size=page_size,
             metadata={
-                "search_name": name,
-                "search_user_id": user_id,
+                "search_params": self._non_empty_params(
+                    {"name": name, "user_id": user_id, "unit_id": unit_id, "unit_name": unit_name, "post_code": post_code}
+                )
             },
         )
 
+    async def _resolve_personnel_id(
+        self,
+        *,
+        name: Optional[str],
+        user_id: Optional[str],
+    ) -> Optional[str]:
+        if user_id:
+            row = await self.db[Collections.PERSONNEL_MASTER].find_one(
+                {"userId": str(user_id).strip(), "isDelete": False},
+                {"_id": 1},
+            )
+            return str(row["_id"]) if row else None
+        if name:
+            escaped = re.escape(str(name).strip())
+            row = await self.db[Collections.PERSONNEL_MASTER].find_one(
+                {"isDelete": False, "name": {"$regex": escaped, "$options": "i"}},
+                {"_id": 1},
+            )
+            return str(row["_id"]) if row else None
+        return None
+
+    async def _resolve_unit_id(
+        self,
+        *,
+        unit_id: Optional[str],
+        unit_name: Optional[str],
+        context: UserContext,
+    ) -> Optional[str]:
+        if unit_id and ObjectId.is_valid(unit_id):
+            return unit_id
+        if unit_name:
+            unit_query = {"name": {"$regex": re.escape(str(unit_name).strip()), "$options": "i"}, "isDelete": False}
+            scoped_query = await self.apply_scope_filter(unit_query, context, "unit")
+            row = await self.db[Collections.UNIT].find_one(scoped_query, {"_id": 1})
+            return str(row["_id"]) if row else None
+        return None
+
+    def _non_empty_params(self, params: Dict[str, Optional[str]]) -> Dict[str, str]:
+        return {k: v for k, v in params.items() if isinstance(v, str) and v.strip()}

@@ -1,4 +1,4 @@
-﻿"""MCP stdio placeholder entrypoint.
+"""MCP stdio placeholder entrypoint.
 
 Use HTTP server for local execution:
     python mcp_server.py

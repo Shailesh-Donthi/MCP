@@ -10,8 +10,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from mcp.constants import Collections
 from mcp.query_builder.filters import ScopeFilter
 from mcp.utils.formatters import stringify_object_ids
-from mcp.v2.repositories.pipeline_builder import PipelineBuilder
-from mcp.v2.repositories.scope_context import ScopeContext
+from mcp.repositories.pipeline_builder import PipelineBuilder
+from mcp.repositories.scope_context import ScopeContext
 
 
 class EnrichedBaseRepository:

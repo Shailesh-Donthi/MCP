@@ -148,11 +148,7 @@ def route_query_to_tool_enriched(
     if re.search(r"\b(help|capabilit(?:y|ies)|what can you help)\b", query_lower):
         return "__help__", {}
 
-    if re.search(r"\b(transfers?|posting|postings|movement)\b", query_lower):
-        return "__help__", {"reason": "Transfer queries are not available in V2 yet."}
-
-    if re.search(r"\b(village|villages?|mapping|coverage|unmapped)\b", query_lower):
-        return "__help__", {"reason": "Village-mapping queries are not available in V2 yet."}
+    # Note: Transfer and village-mapping queries are handled by repair_route heuristics.
 
     if can_use("search_unit"):
         role_unit_name = _extract_tail_name(

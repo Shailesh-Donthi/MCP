@@ -9,8 +9,8 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from mcp.constants import Collections
-from mcp.v2.repositories.enriched_base_repository import EnrichedBaseRepository
-from mcp.v2.repositories.scope_context import ScopeContext
+from mcp.repositories.enriched_base_repository import EnrichedBaseRepository
+from mcp.repositories.scope_context import ScopeContext
 
 
 class PersonnelRepository(EnrichedBaseRepository):

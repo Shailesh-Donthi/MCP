@@ -1,9 +1,9 @@
 import asyncio
 import unittest
 
-from mcp.v2.llm_router import llm_route_query
-from mcp.v2.orchestration.enriched_router import route_query_to_tool_enriched
-from mcp.v2.server_http import route_query_to_tool as route_query_to_tool_v2
+from mcp.llm_router import llm_route_query
+from mcp.orchestration.enriched_router import route_query_to_tool_enriched
+from mcp.server_http import route_query_to_tool as route_query_to_tool_v2
 
 
 class V2RoutingTests(unittest.TestCase):

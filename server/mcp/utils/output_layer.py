@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 OutputFormat = str
@@ -363,7 +363,7 @@ def build_output_payload(
         content_type = "text/plain"
         extension = "txt"
 
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_tool = (routed_to or "query_result").replace(" ", "_")
     filename = f"{safe_tool}_{stamp}.{extension}"
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Village Mapping Tools for MCP
 
 Tools for querying village coverage and identifying gaps.

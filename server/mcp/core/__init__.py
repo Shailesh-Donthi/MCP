@@ -1,1 +1,1 @@
-﻿"""Core modules for MCP runtime."""
+"""Core modules for MCP runtime."""

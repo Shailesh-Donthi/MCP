@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from mcp.config import mcp_settings
-from mcp.v2.repositories.relationship_mapper import (
+from mcp.repositories.relationship_mapper import (
     RelationshipSpec,
     get_relationship,
     normalize_enrichments,

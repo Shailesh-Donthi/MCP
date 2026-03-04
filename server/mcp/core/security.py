@@ -1,4 +1,4 @@
-﻿"""Security helpers used by HTTP API."""
+"""Security helpers used by HTTP API."""
 
 from __future__ import annotations
 

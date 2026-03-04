@@ -1,4 +1,4 @@
-﻿"""
+"""
 Safe Query Builder for MongoDB
 
 Provides safe parameterized query construction to prevent injection attacks.

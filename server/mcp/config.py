@@ -1,4 +1,4 @@
-﻿"""
+"""
 MCP Server Configuration
 
 Extends the existing settings pattern from app/core/config.py
@@ -22,9 +22,6 @@ class MCPSettings(BaseSettings):
     MCP_SERVER_VERSION: str = "1.0.0"
     MCP_MAX_RESULTS: int = 1000
     MCP_DEFAULT_PAGE_SIZE: int = 50
-    MCP_LOGIC_VERSION: str = "v1"
-
-    # Query Safety
     MCP_QUERY_TIMEOUT_MS: int = 30000
     MCP_MAX_AGGREGATION_STAGES: int = 10
 

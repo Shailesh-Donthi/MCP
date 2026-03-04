@@ -1,4 +1,4 @@
-﻿"""
+"""
 Scope Filters for MCP Queries
 
 Applies unit/district-based access controls to queries based on user context.

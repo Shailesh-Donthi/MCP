@@ -1,4 +1,4 @@
-﻿"""
+"""
 MongoDB Aggregation Pipeline Builder
 
 Provides a fluent API for building aggregation pipelines with safety controls.

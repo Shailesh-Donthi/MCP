@@ -1,4 +1,4 @@
-﻿"""Query Builder Package for Safe Parameterized Queries"""
+"""Query Builder Package for Safe Parameterized Queries"""
 
 from mcp.query_builder.builder import SafeQueryBuilder
 from mcp.query_builder.aggregation_builder import AggregationBuilder

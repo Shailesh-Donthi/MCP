@@ -1,4 +1,4 @@
-﻿"""
+"""
 Vacancy Analysis Tools for MCP
 
 Tools for analyzing staffing and vacancies across units and ranks.

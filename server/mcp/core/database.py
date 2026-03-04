@@ -1,4 +1,4 @@
-﻿"""MongoDB connection helpers for MCP server."""
+"""MongoDB connection helpers for MCP server."""
 
 from __future__ import annotations
 

@@ -367,7 +367,13 @@ def repair_route(
             "the", "a", "an",
             "last", "past", "previous", "current", "recent",
             "day", "days", "week", "weeks", "month", "months", "year", "years",
+            # Transfer / village / vacancy keywords
+            "transfer", "transfers", "posting", "postings", "movement",
+            "village", "villages", "mapping", "mappings", "coverage", "unmapped",
+            "vacancy", "vacancies", "vacant",
+            "missing",
         }
+
         value = re.sub(r"\s+", " ", str(raw_value or "")).strip()
         value = _trim_conjoined_tail(value)
         value = re.sub(r"\s*(?:districts?|disctricts?|dist\.?)\s*$", "", value, flags=re.IGNORECASE).strip()
@@ -412,6 +418,7 @@ def repair_route(
         "count_vacancies": "count_vacancies_by_unit_rank",
         "vacancies_by_unit": "count_vacancies_by_unit_rank",
     }
+
     primary_query = _extract_primary_clause(query or "")
     primary_query_lower = primary_query.lower()
     tool_name = tool_aliases.get(str(tool_name or "").strip(), tool_name)
@@ -640,7 +647,80 @@ def repair_route(
     if where_is_target:
         return "search_unit", {"name": where_is_target}
 
-    # LLM may drift "how many ranges in AP" to distribution; force proper unit type lookup.
+    # Vacancy queries → count_vacancies_by_unit_rank
+    if re.search(r"\b(vacanc(?:y|ies)|vacant\s+posts?)\b", query_lower):
+        vacancy_args: Dict[str, Any] = {}
+        if place:
+            vacancy_args["district_name"] = place
+        elif unit_hint:
+            vacancy_args["unit_name"] = unit_hint
+        return "count_vacancies_by_unit_rank", vacancy_args
+
+    # Rank + 'each district' pattern → query_personnel_by_rank with no district filter
+    if (
+        rank_name
+        and re.search(r"\beach\s+district\b", query_lower)
+    ):
+        each_args: Dict[str, Any] = {"rank_name": rank_name}
+        if rank_relation != "exact":
+            each_args["rank_relation"] = rank_relation
+        return "query_personnel_by_rank", each_args
+
+    # Transfer queries → query_recent_transfers
+    if re.search(r"\b(transfers?|posting|postings|movement)\b", query_lower):
+        transfer_args: Dict[str, Any] = {}
+        transfer_place = _sanitize_district_value(
+            _extract_transfer_place(primary_query or query) or _extract_transfer_place(query) or place
+        )
+        if transfer_place and transfer_place.lower() not in {"ap", "andhra pradesh"}:
+            transfer_args["district_name"] = transfer_place
+        days_match = re.search(r"\b(\d+)\s*days?\b", query_lower)
+        if days_match:
+            transfer_args["days"] = int(days_match.group(1))
+        else:
+            # Also guard "last 30 days" form
+            last_match = re.search(r"\blast\s+(\d+)\s*days?\b", query_lower)
+            if last_match:
+                transfer_args["days"] = int(last_match.group(1))
+            else:
+                transfer_args["days"] = 30
+        return "query_recent_transfers", transfer_args
+
+    # Village/coverage queries
+    if re.search(r"\b(missing\s+village|missing\s+villages?)\b", query_lower):
+        village_args: Dict[str, Any] = {}
+        if place:
+            village_args["district_name"] = place
+        return "find_missing_village_mappings", village_args
+
+    if re.search(r"\b(village|villages?|mapped|coverage)\b", query_lower) and re.search(r"\b(ps|station|unit)\b", query_lower):
+        unit_candidate = unit_hint or place
+        village_cov_args: Dict[str, Any] = {}
+        if unit_candidate:
+            village_cov_args["unit_name"] = unit_candidate
+        return "get_village_coverage", village_cov_args
+
+
+    if (
+        re.search(r"\b(?:list|show|get|find)\b", query_lower)
+        and re.search(r"\bunits?\b", query_lower)
+        and not re.search(r"\branges?\b", query_lower)
+        and place
+    ):
+        list_units_args: Dict[str, Any] = {"district_name": place}
+        return "list_units_in_district", list_units_args
+
+    # "list personnel in <district>" with no rank filter → get_personnel_distribution
+    if (
+        re.search(r"\b(?:list|show|get|find)\b", query_lower)
+        and re.search(r"\b(personnel|personell|officers?|staff|people)\b", query_lower)
+        and place
+        and not rank_name
+        and not unit_hint
+    ):
+        return "get_personnel_distribution", {"district_name": place, "group_by": "rank"}
+
+
     if (
         re.search(r"\bhow\s+many\s+ranges?\b", query_lower)
         or re.search(r"\b(?:count|total|number)\s+(?:of\s+)?ranges?\b", query_lower)

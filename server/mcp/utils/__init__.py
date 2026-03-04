@@ -1,13 +1,5 @@
-﻿"""MCP Utility Modules"""
+"""V2 formatting utilities."""
 
-from mcp.utils.formatters import format_response, format_personnel, format_unit
-from mcp.utils.date_parser import parse_relative_date, parse_date_range
+from mcp.utils.formatters import generate_natural_language_response
 
-__all__ = [
-    "format_response",
-    "format_personnel",
-    "format_unit",
-    "parse_relative_date",
-    "parse_date_range",
-]
-
+__all__ = ["generate_natural_language_response"]

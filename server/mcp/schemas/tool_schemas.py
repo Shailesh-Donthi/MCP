@@ -1,10 +1,10 @@
-﻿"""
+"""
 Tool Input/Output Schemas for MCP Tools
 
 Defines the structured response formats for MCP tool outputs.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any, Generic, TypeVar
 from datetime import datetime
 
@@ -64,8 +64,7 @@ class PersonnelResult(BaseModel):
     )
     is_active: bool = Field(True, alias="isActive", description="Active status")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PersonnelGroupedByRank(BaseModel):
@@ -99,8 +98,7 @@ class UnitResult(BaseModel):
         None, alias="responsibleUserName", description="Responsible officer name"
     )
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class VacancyResult(BaseModel):
@@ -143,8 +141,7 @@ class VillageMappingResult(BaseModel):
         None, alias="userId", description="Personnel User ID (if personnel)"
     )
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UnitHierarchyNode(BaseModel):
@@ -160,8 +157,7 @@ class UnitHierarchyNode(BaseModel):
         default_factory=list, description="Child units"
     )
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # Update forward references for recursive model

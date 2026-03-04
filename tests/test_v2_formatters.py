@@ -1,6 +1,6 @@
 import unittest
 
-from mcp.v2.utils.formatters import generate_natural_language_response
+from mcp.utils.formatters import generate_natural_language_response
 
 
 class V2FormatterTests(unittest.TestCase):

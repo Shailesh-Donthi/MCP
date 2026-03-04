@@ -1,4 +1,4 @@
-﻿"""
+"""
 Transfer Query Tools for MCP
 
 Tools for querying personnel transfer history.
