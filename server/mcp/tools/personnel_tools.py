@@ -1153,7 +1153,13 @@ class QueryPersonnelByRankTool(BaseTool):
             pipeline
         ).to_list(length=None)
 
-        total = await self.db[Collections.PERSONNEL_MASTER].count_documents(query)
+        # Count through the same pipeline (including assignment-active filter and $group),
+        # but without $sort/$skip/$limit/$project, so the total matches what data returns.
+        count_pipeline = pipeline[:-4] + [{"$count": "total"}]
+        count_result = await self.db[Collections.PERSONNEL_MASTER].aggregate(
+            count_pipeline
+        ).to_list(length=1)
+        total = count_result[0]["total"] if count_result else 0
 
         metadata = await self._build_rank_metadata(rank_id)
 
