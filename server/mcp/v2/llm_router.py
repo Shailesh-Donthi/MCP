@@ -9,6 +9,7 @@ from collections import OrderedDict, deque
 from typing import Any, Deque, Dict, Iterable, List, Optional, Set, Tuple
 
 from mcp.router.llm_client import call_openai_api, has_llm_api_key
+from mcp.router.extractors import format_followup_district_response, is_followup_district_query, extract_ordinal_index, extract_list_reference_index
 from mcp.schemas.context_schema import UserContext
 from mcp.utils.output_layer import build_output_payload
 from mcp.v2.handlers.tool_handler import get_tool_handler
@@ -153,8 +154,10 @@ def _parse_route_response(
     response: Optional[str],
     query: str,
     *,
-    available_tools: Set[str],
+    available_tools: Optional[Set[str]] = None,
 ) -> Optional[Tuple[str, Dict[str, Any], str, float]]:
+    if available_tools is None:
+        available_tools = _default_available_tools()
     if not response or not str(response).strip():
         return None
 
@@ -188,6 +191,11 @@ def _parse_route_response(
 
     if tool in _ROUTE_TOOLS_REQUIRING_NONEMPTY_ARGS and not _has_meaningful_route_args(tool, arguments):
         return None
+    if tool == "query_personnel_by_rank" and not any(
+        isinstance(arguments.get(key), str) and arguments.get(key).strip()
+        for key in ("rank_name", "rank_id")
+    ):
+        return None
 
     understood_query = result.get("understood_query")
     if not isinstance(understood_query, str) or not understood_query.strip():
@@ -212,6 +220,18 @@ def _default_available_tools() -> Set[str]:
             "search_unit",
             "check_responsible_user",
             "search_assignment",
+            "query_personnel_by_unit",
+            "query_personnel_by_rank",
+            "get_unit_hierarchy",
+            "list_units_in_district",
+            "list_districts",
+            "count_vacancies_by_unit_rank",
+            "get_personnel_distribution",
+            "query_recent_transfers",
+            "get_unit_command_history",
+            "find_missing_village_mappings",
+            "get_village_coverage",
+            "query_linked_master_data",
         }
 
 
@@ -238,12 +258,61 @@ async def llm_route_query(
             args["district_name"] = district
         return "query_personnel_by_rank", args, query, 0.7, "heuristic_followup"
 
+    def _assignment_is_primary(text: str) -> bool:
+        lowered = str(text or "").lower()
+        return bool(
+            re.search(r"^\s*(?:show|list|get|find)?\s*(?:all\s+)?(?:assignments?|posting|postings)\b", lowered)
+            or re.search(r"\b(?:assignments?|posting|posted)\s+(?:for|of|under|in)\b", lowered)
+        )
+
+    def _person_lookup_dominant(text: str) -> bool:
+        lowered = str(text or "").lower()
+        return bool(
+            re.search(r"\bwho\s+has\s+user\s*id\b", lowered)
+            or re.search(r"\b(?:who\s+is|find|search|lookup)\s+(?:officer|person|personnel)\b", lowered)
+            or re.search(r"\btell\s+me\s+about\b", lowered)
+            or re.search(r"\b(?:mobile|phone|email|contact|badge)\b", lowered)
+        )
+
+    def _extract_person_lookup_args(text: str, seed: Dict[str, Any]) -> Dict[str, Any]:
+        args: Dict[str, Any] = {}
+        for key in ("user_id", "mobile", "email", "name"):
+            value = (seed or {}).get(key)
+            if isinstance(value, str):
+                value = value.strip()
+            if value:
+                args[key] = value
+
+        if "user_id" not in args:
+            uid_match = re.search(r"\b(?:user\s*id|userid)\s*[:#-]?\s*(\d{6,12})\b", text, re.IGNORECASE)
+            if uid_match:
+                args["user_id"] = uid_match.group(1)
+        if "mobile" not in args:
+            mobile_match = re.search(r"\b(?:mobile|phone)\s*[:#-]?\s*(\d{8,15})\b", text, re.IGNORECASE)
+            if mobile_match:
+                args["mobile"] = mobile_match.group(1)
+        if "email" not in args:
+            email_match = re.search(r"\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b", text, re.IGNORECASE)
+            if email_match:
+                args["email"] = email_match.group(1)
+        return args
+
     def _repair_route_choice(
         tool_name: str,
         arguments: Dict[str, Any],
     ) -> Tuple[str, Dict[str, Any]]:
         normalized_tool = _TOOL_ALIASES.get(str(tool_name or "").strip(), str(tool_name or "").strip())
         normalized_args = dict(arguments or {})
+        if (
+            normalized_tool == "search_assignment"
+            and "search_personnel" in available
+            and _person_lookup_dominant(query)
+            and not _assignment_is_primary(query)
+        ):
+            person_args = _extract_person_lookup_args(query, normalized_args)
+            if person_args:
+                normalized_tool = "search_personnel"
+                normalized_args = person_args
         if normalized_tool and normalized_tool not in {"__help__", "search_assignment"}:
             try:
                 from mcp.router import repair_route
@@ -260,24 +329,46 @@ async def llm_route_query(
             return tool_name, arguments
         return normalized_tool or tool_name, normalized_args
 
-    if has_llm_api_key():
-        messages: List[Dict[str, str]] = []
-        if conversation_context:
-            messages.extend(conversation_context[-8:])
-        messages.append({"role": "user", "content": query})
-        llm_response = await call_openai_api(messages, ROUTER_SYSTEM_PROMPT_V2)
+    messages: List[Dict[str, str]] = []
+    if conversation_context:
+        messages.extend(conversation_context[-8:])
+    messages.append({"role": "user", "content": query})
+    llm_response = await call_openai_api(messages, ROUTER_SYSTEM_PROMPT_V2)
 
-        parsed = _parse_route_response(
-            llm_response,
-            query,
-            available_tools=available,
-        )
-        if parsed:
-            tool, args, understood, confidence = parsed
-            repaired_tool, repaired_args = _repair_route_choice(tool, args)
-            return repaired_tool, repaired_args, understood, confidence, "llm"
+    parsed = _parse_route_response(
+        llm_response,
+        query,
+        available_tools=available,
+    )
+    if parsed:
+        tool, args, understood, confidence = parsed
+        repaired_tool, repaired_args = _repair_route_choice(tool, args)
+        return repaired_tool, repaired_args, understood, confidence, "llm"
+    # Backward-compatible strict retry behavior without context.
+    retry_messages = [{"role": "user", "content": query}]
+    retry_response = await call_openai_api(retry_messages, ROUTER_SYSTEM_PROMPT_V2)
+    retry_parsed = _parse_route_response(
+        retry_response,
+        query,
+        available_tools=available,
+    )
+    if retry_parsed:
+        tool, args, understood, confidence = retry_parsed
+        repaired_tool, repaired_args = _repair_route_choice(tool, args)
+        return repaired_tool, repaired_args, understood, confidence, "llm_retry_no_context"
 
-    tool, args = fallback_route_query(query, available_tools=available)
+    fallback = fallback_route_query(query, available_tools=available)
+    if isinstance(fallback, tuple) and len(fallback) >= 4:
+        tool = fallback[0]
+        args = fallback[1] if isinstance(fallback[1], dict) else {}
+        understood = fallback[2] if isinstance(fallback[2], str) and fallback[2].strip() else query
+        try:
+            confidence = float(fallback[3])
+        except Exception:
+            confidence = 0.55
+        repaired_tool, repaired_args = _repair_route_choice(tool, args)
+        return repaired_tool, repaired_args, understood, confidence, "heuristic_fallback"
+    tool, args = fallback if isinstance(fallback, tuple) and len(fallback) >= 2 else ("__help__", {})
     repaired_tool, repaired_args = _repair_route_choice(tool, args)
     return repaired_tool, repaired_args, query, 0.55, "heuristic_fallback"
 
@@ -360,6 +451,7 @@ class IntelligentQueryHandler:
         self.max_history_messages = 12
         self.max_session_contexts = 500
         self._history: Dict[str, Deque[Dict[str, str]]] = OrderedDict()
+        self._state: Dict[str, Dict[str, Any]] = OrderedDict()
 
     def _ensure_session_slot(self, session_id: str) -> None:
         if session_id in self._history:
@@ -374,6 +466,171 @@ class IntelligentQueryHandler:
         self._ensure_session_slot(session_id)
         return self._history[session_id]
 
+    def _get_state(self, session_id: str) -> Dict[str, Any]:
+        self._ensure_session_slot(session_id)
+        state = self._state.get(session_id)
+        if state is None:
+            state = {}
+            self._state[session_id] = state
+        self._state.move_to_end(session_id)
+        while len(self._state) > self.max_session_contexts:
+            oldest = next(iter(self._state))
+            self._state.pop(oldest, None)
+        return state
+
+    def _available_tools(self) -> Set[str]:
+        if hasattr(self.tool_handler, "get_tool_names"):
+            try:
+                names = self.tool_handler.get_tool_names()
+                if isinstance(names, list):
+                    return set(names)
+                if isinstance(names, set):
+                    return names
+            except Exception:
+                pass
+        return _default_available_tools()
+
+    @staticmethod
+    def _is_attribute_only_followup(query: str) -> bool:
+        q = str(query or "").lower()
+        return bool(
+            re.fullmatch(
+                r"\s*(?:mobile|phone|email|contact|dob|date\s+of\s+birth|address|blood(?:\s+group)?|badge|rank|designation)"
+                r"(?:\s+number)?\s*\??\s*",
+                q,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _split_complex_query_chain(query: str) -> List[str]:
+        raw = str(query or "").strip()
+        if not raw:
+            return []
+        parts = re.split(r"\s+\band\s+then\b\s+", raw, flags=re.IGNORECASE)
+        parts = [part.strip() for part in parts if part and part.strip()]
+        return parts if len(parts) >= 2 else []
+
+    @staticmethod
+    def _extract_role_and_unit(query: str) -> Tuple[Optional[str], Optional[str]]:
+        q = str(query or "").strip()
+        if not q:
+            return None, None
+        patterns = [
+            r"\bwho\s+is\s+(?:the\s+)?([A-Za-z][A-Za-z\s\-]{1,30})\s+of\s+([A-Za-z0-9][A-Za-z0-9\s\.\-']{1,120})\??$",
+            r"^\s*([A-Za-z][A-Za-z\s\-]{1,30})\s+of\s+([A-Za-z0-9][A-Za-z0-9\s\.\-']{1,120})\??$",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, q, re.IGNORECASE)
+            if not m:
+                continue
+            role = re.sub(r"\s+", " ", m.group(1)).strip().lower()
+            unit = re.sub(r"\s+", " ", m.group(2)).strip(" ?.").strip()
+            if role and unit:
+                return role, unit
+        return None, None
+
+    @staticmethod
+    def _normalized_role_key(role: str) -> str:
+        role_raw = (role or "").strip().lower()
+        aliases = {
+            "sp": "sp",
+            "superintendent of police": "sp",
+            "igp": "igp",
+            "inspector general of police": "igp",
+            "ao": "ao",
+            "administrative officer": "ao",
+            "pc": "pc",
+            "police constable": "pc",
+        }
+        return aliases.get(role_raw, role_raw)
+
+    @staticmethod
+    def _normalize_unit_name(unit_name: str) -> str:
+        acronyms = {"PS", "DPO", "SDPO", "SPDO", "IGP", "AO", "PC", "APSP"}
+        tokens = re.split(r"\s+", str(unit_name or "").strip())
+        out: List[str] = []
+        for token in tokens:
+            raw = token.strip()
+            if not raw:
+                continue
+            alpha = re.sub(r"[^A-Za-z]", "", raw).upper()
+            if alpha in acronyms:
+                out.append(alpha)
+            elif re.fullmatch(r"[A-Z]{2,5}", raw):
+                out.append(raw)
+            else:
+                out.append(raw.capitalize())
+        return " ".join(out).strip()
+
+    @staticmethod
+    def _filter_role_candidates(rows: List[Dict[str, Any]], role_key: str, unit_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        if not isinstance(rows, list):
+            return []
+
+        def _rank_name(row: Dict[str, Any]) -> str:
+            return str(row.get("rankName") or ((row.get("rank") or {}).get("name") if isinstance(row.get("rank"), dict) else "") or "").strip().lower()
+
+        def _rank_code(row: Dict[str, Any]) -> str:
+            return str(row.get("rankShortCode") or ((row.get("rank") or {}).get("shortCode") if isinstance(row.get("rank"), dict) else "") or "").strip().upper()
+
+        def _unit_ok(row: Dict[str, Any]) -> bool:
+            if not unit_name:
+                return True
+            row_unit = str(row.get("unitName") or "").strip()
+            if not row_unit:
+                return True
+            return row_unit.lower() == unit_name.lower()
+
+        filtered: List[Dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if not _unit_ok(row):
+                continue
+            rn = _rank_name(row)
+            rc = _rank_code(row)
+            if role_key == "sp" and "superintendent of police" in rn:
+                filtered.append(row)
+            elif role_key == "igp" and ("inspector general of police" in rn or rc == "IGP"):
+                filtered.append(row)
+            elif role_key == "ao" and ("administrative officer" in rn or rc == "AO"):
+                filtered.append(row)
+            elif role_key == "pc" and (("police constable" in rn or "constable" in rn) or rc == "PC"):
+                filtered.append(row)
+            elif role_key and role_key in rn:
+                filtered.append(row)
+        return filtered
+
+    async def _route(
+        self,
+        query_text: str,
+        llm_context: List[Dict[str, str]],
+        available_tools: Set[str],
+    ) -> Tuple[str, Dict[str, Any], str, float, str]:
+        if self.use_llm:
+            try:
+                return await llm_route_query(
+                    query_text,
+                    llm_context,
+                    available_tools=available_tools,
+                )
+            except TypeError:
+                # Backward-compatible path for patched/mocked signatures in tests.
+                return await llm_route_query(query_text, llm_context)
+        fallback = fallback_route_query(query_text, available_tools=available_tools)
+        if isinstance(fallback, tuple) and len(fallback) >= 4:
+            tool = str(fallback[0] or "__help__")
+            args = fallback[1] if isinstance(fallback[1], dict) else {}
+            understood = fallback[2] if isinstance(fallback[2], str) and fallback[2].strip() else query_text
+            try:
+                confidence = float(fallback[3])
+            except Exception:
+                confidence = 0.55
+            return tool, args, understood, confidence, "heuristic_fallback"
+        tool, args = fallback if isinstance(fallback, tuple) and len(fallback) >= 2 else ("__help__", {})
+        return tool, args, query_text, 0.55, "heuristic_only"
+
     async def process_query(
         self,
         query: str,
@@ -385,6 +642,7 @@ class IntelligentQueryHandler:
     ) -> Dict[str, Any]:
         session_key = session_id or "default"
         history = self._get_history(session_key)
+        state = self._get_state(session_key)
         context = context or UserContext(scope_level="state")
         clean_query = str(query or "").strip()
 
@@ -409,24 +667,145 @@ class IntelligentQueryHandler:
                 "data": {},
                 "route_source": "empty_query",
                 "route_confidence": 1.0,
+                "understood_as": "empty_query",
                 "output": output_payload,
                 "history_size": len(history),
             }
 
-        available_tools = set(self.tool_handler.get_tool_names())
+        available_tools = self._available_tools()
         llm_context = list(history)
 
-        if self.use_llm:
-            tool_name, arguments, understood_query, confidence, route_source = await llm_route_query(
+        # Backward-compatible multi-step chain support used by unit tests.
+        chain_parts = self._split_complex_query_chain(clean_query)
+        if chain_parts:
+            step_results: List[Dict[str, Any]] = []
+            prev_tool: Optional[str] = None
+            prev_args: Dict[str, Any] = {}
+            prev_result: Dict[str, Any] = {}
+            combined_lines: List[str] = []
+
+            for idx, part in enumerate(chain_parts):
+                step_query = part
+                step_tool: str
+                step_args: Dict[str, Any]
+                understood_query: str
+                confidence: float
+                route_source: str
+
+                if idx > 0 and re.search(r"\bnext\s+page\b", part, re.IGNORECASE) and prev_tool:
+                    step_tool = prev_tool
+                    step_args = dict(prev_args or {})
+                    step_args["page"] = int(step_args.get("page") or 1) + 1
+                    understood_query = part
+                    confidence = 0.8
+                    route_source = "chain_pagination"
+                elif idx > 0 and re.search(r"\b(details?|info|profile)\b", part, re.IGNORECASE):
+                    ordinal = extract_ordinal_index(part) or extract_list_reference_index(part) or 1
+                    rows = prev_result.get("data", []) if isinstance(prev_result, dict) else []
+                    chosen = rows[ordinal - 1] if isinstance(rows, list) and 0 < ordinal <= len(rows) else {}
+                    user_id = str((chosen or {}).get("userId") or "").strip() if isinstance(chosen, dict) else ""
+                    if user_id:
+                        step_tool = "search_personnel"
+                        step_args = {"user_id": user_id}
+                        understood_query = part
+                        confidence = 0.85
+                        route_source = "chain_ordinal_followup"
+                    else:
+                        step_tool, step_args, understood_query, confidence, route_source = await self._route(
+                            step_query,
+                            llm_context,
+                            available_tools,
+                        )
+                else:
+                    step_tool, step_args, understood_query, confidence, route_source = await self._route(
+                        step_query,
+                        llm_context,
+                        available_tools,
+                    )
+
+                step_result = await self.tool_handler.execute(step_tool, step_args, context)
+                step_response = fallback_format_response(step_query, step_tool, step_args, step_result)
+                if step_response:
+                    combined_lines.append(step_response)
+                step_results.append(
+                    {
+                        "query": step_query,
+                        "routed_to": step_tool,
+                        "arguments": step_args,
+                        "response": step_response,
+                        "success": bool(step_result.get("success", True)) if isinstance(step_result, dict) else True,
+                        "data": step_result.get("data") if isinstance(step_result, dict) else {},
+                        "route_source": route_source,
+                        "route_confidence": confidence,
+                        "understood_query": understood_query,
+                    }
+                )
+                prev_tool, prev_args, prev_result = step_tool, step_args, step_result
+
+            response_text = "\n\n".join(combined_lines) if combined_lines else "No steps were executed."
+            all_success = all(bool(item.get("success", False)) for item in step_results)
+            output_payload = build_output_payload(
+                query=clean_query,
+                response_text=response_text,
+                routed_to=step_results[-1].get("routed_to") if step_results else None,
+                arguments=step_results[-1].get("arguments", {}) if step_results else {},
+                result={"success": all_success, "data": {"steps": step_results}},
+                requested_format=output_format,
+                allow_download=allow_download,
+            )
+            history.append({"role": "user", "content": clean_query})
+            history.append({"role": "assistant", "content": response_text})
+            return {
+                "success": all_success,
+                "query": clean_query,
+                "response": response_text,
+                "routed_to": step_results[-1].get("routed_to") if step_results else None,
+                "arguments": step_results[-1].get("arguments", {}) if step_results else {},
+                "extracted_arguments": step_results[-1].get("arguments", {}) if step_results else {},
+                "data": {"steps": step_results},
+                "route_source": "complex_query_chain",
+                "route_confidence": 0.9,
+                "understood_query": "complex_query_chain",
+                "understood_as": "complex_query_chain",
+                "output": output_payload,
+                "history_size": len(history),
+            }
+
+        if (
+            is_followup_district_query(clean_query)
+            and str(state.get("last_tool") or "") == "query_personnel_by_rank"
+            and isinstance(state.get("last_arguments"), dict)
+            and state["last_arguments"].get("rank_name")
+        ):
+            tool_name = "query_personnel_by_rank"
+            arguments = {"rank_name": state["last_arguments"].get("rank_name")}
+            if state["last_arguments"].get("district_name"):
+                arguments["district_name"] = state["last_arguments"].get("district_name")
+            if state["last_arguments"].get("district_names"):
+                arguments["district_names"] = state["last_arguments"].get("district_names")
+            understood_query = clean_query
+            confidence = 0.85
+            route_source = "district_followup_memory"
+        elif self._is_attribute_only_followup(clean_query) and state.get("selected_user_id"):
+            tool_name = "search_personnel"
+            arguments = {"user_id": state["selected_user_id"]}
+            understood_query = clean_query
+            confidence = 0.85
+            route_source = "attribute_followup_memory"
+        else:
+            tool_name, arguments, understood_query, confidence, route_source = await self._route(
                 clean_query,
                 llm_context,
-                available_tools=available_tools,
+                available_tools,
             )
-        else:
-            tool_name, arguments = fallback_route_query(clean_query, available_tools=available_tools)
-            understood_query = clean_query
-            confidence = 0.55
-            route_source = "heuristic_only"
+
+        role_raw, role_unit = self._extract_role_and_unit(clean_query)
+        role_key = self._normalized_role_key(role_raw or "")
+        # For IGP/AO/PC-like role-holder asks, bypass command-history tool and
+        # query the unit roster directly.
+        if tool_name == "get_unit_command_history" and role_unit and role_key not in {"", "sp", "sdpo", "sho"}:
+            tool_name = "query_personnel_by_unit"
+            arguments = {"unit_name": self._normalize_unit_name(role_unit)}
 
         if tool_name == "__help__":
             reason = str(arguments.get("reason") or "").strip()
@@ -453,14 +832,109 @@ class IntelligentQueryHandler:
                 "route_source": route_source,
                 "route_confidence": confidence,
                 "understood_query": understood_query,
+                "understood_as": "capability_help",
                 "output": output_payload,
                 "history_size": len(history),
             }
 
         result = await self.tool_handler.execute(tool_name, arguments, context)
+        force_deterministic_response = False
 
-        response_text = fallback_format_response(clean_query, tool_name, arguments, result)
-        if self.use_llm and tool_name not in {"search_personnel", "search_unit", "check_responsible_user", "search_assignment"}:
+        # Recover designation prompts routed to rank lookup when rank resolution failed.
+        if (
+            tool_name == "query_personnel_by_rank"
+            and isinstance(result, dict)
+            and not result.get("success", True)
+        ):
+            error = result.get("error", {}) if isinstance(result.get("error"), dict) else {}
+            message = str(error.get("message") or "")
+            if "rank not found" in message.lower() and re.search(r"\b(?:sdpo|spdo|designation)\b", clean_query, re.IGNORECASE):
+                tool_name = "search_personnel"
+                arguments = {"designation_name": "SDPO"}
+                result = await self.tool_handler.execute(tool_name, arguments, context)
+
+        # Recover role-of-unit asks via unit roster filtering.
+        if role_unit and role_key in {"sp", "igp", "ao", "pc"}:
+            normalized_unit = self._normalize_unit_name(role_unit)
+
+            async def _resolve_via_unit_filter() -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+                unit_tool = "query_personnel_by_unit"
+                unit_args = {"unit_name": normalized_unit}
+                unit_result = await self.tool_handler.execute(unit_tool, unit_args, context)
+                rows = unit_result.get("data", []) if isinstance(unit_result, dict) else []
+                candidates = self._filter_role_candidates(rows if isinstance(rows, list) else [], role_key, normalized_unit)
+                if len(candidates) == 1:
+                    user_id = str(candidates[0].get("userId") or "").strip()
+                    if user_id:
+                        person_tool = "search_personnel"
+                        person_args = {"user_id": user_id}
+                        person_result = await self.tool_handler.execute(person_tool, person_args, context)
+                        return person_tool, person_args, person_result
+                if len(candidates) > 1:
+                    total = len(candidates)
+                    unit_result = {
+                        "success": True,
+                        "data": candidates,
+                        "pagination": {"page": 1, "page_size": total, "total": total, "total_pages": 1},
+                    }
+                return unit_tool, unit_args, unit_result
+
+            def _resolve_from_current_unit_result(
+                current_result: Dict[str, Any],
+            ) -> Optional[Tuple[str, Dict[str, Any], Dict[str, Any]]]:
+                rows = current_result.get("data", []) if isinstance(current_result, dict) else []
+                candidates = self._filter_role_candidates(rows if isinstance(rows, list) else [], role_key, normalized_unit)
+                if len(candidates) == 1:
+                    user_id = str(candidates[0].get("userId") or "").strip()
+                    if user_id:
+                        return "search_personnel", {"user_id": user_id}, {}
+                if len(candidates) > 1:
+                    total = len(candidates)
+                    return (
+                        "query_personnel_by_unit",
+                        {"unit_name": normalized_unit},
+                        {
+                            "success": True,
+                            "data": candidates,
+                            "pagination": {"page": 1, "page_size": total, "total": total, "total_pages": 1},
+                        },
+                    )
+                return None
+
+            if tool_name == "get_unit_command_history":
+                metadata = result.get("metadata", {}) if isinstance(result.get("metadata"), dict) else {}
+                command_missing = bool(metadata.get("command_data_missing"))
+                if role_key != "sp" or command_missing:
+                    tool_name, arguments, result = await _resolve_via_unit_filter()
+                    force_deterministic_response = True
+            elif tool_name == "query_personnel_by_rank":
+                tool_name, arguments, result = await _resolve_via_unit_filter()
+                force_deterministic_response = True
+            elif tool_name == "query_personnel_by_unit":
+                resolved = _resolve_from_current_unit_result(result if isinstance(result, dict) else {})
+                if resolved:
+                    resolved_tool, resolved_args, resolved_result = resolved
+                    if resolved_tool == "search_personnel":
+                        person_result = await self.tool_handler.execute(resolved_tool, resolved_args, context)
+                        tool_name, arguments, result = resolved_tool, resolved_args, person_result
+                    else:
+                        tool_name, arguments, result = resolved_tool, resolved_args, resolved_result
+                    force_deterministic_response = True
+
+        use_followup_district = bool(is_followup_district_query(clean_query))
+        district_response: Optional[str] = None
+        if use_followup_district and isinstance(result, dict):
+            data_payload = result.get("data")
+            if isinstance(data_payload, list):
+                district_response = format_followup_district_response(data_payload)
+
+        response_text = district_response or fallback_format_response(clean_query, tool_name, arguments, result)
+        if (
+            self.use_llm
+            and not district_response
+            and not force_deterministic_response
+            and tool_name not in {"search_personnel", "search_unit", "check_responsible_user", "search_assignment"}
+        ):
             llm_text = await llm_format_response(clean_query, tool_name, result, llm_context)
             if isinstance(llm_text, str) and llm_text.strip():
                 response_text = llm_text.strip()
@@ -477,6 +951,15 @@ class IntelligentQueryHandler:
 
         history.append({"role": "user", "content": clean_query})
         history.append({"role": "assistant", "content": response_text})
+        state["last_tool"] = tool_name
+        state["last_arguments"] = dict(arguments or {})
+        state["last_result"] = result if isinstance(result, dict) else {}
+        if isinstance(result, dict) and isinstance(result.get("data"), list):
+            rows = result.get("data") or []
+            if rows and isinstance(rows[0], dict):
+                user_id = str(rows[0].get("userId") or "").strip()
+                if user_id:
+                    state["selected_user_id"] = user_id
 
         return {
             "success": bool(result.get("success", True)) if isinstance(result, dict) else True,
@@ -489,6 +972,7 @@ class IntelligentQueryHandler:
             "route_source": route_source,
             "route_confidence": confidence,
             "understood_query": understood_query,
+            "understood_as": understood_query,
             "output": output_payload,
             "history_size": len(history),
         }

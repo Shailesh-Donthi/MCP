@@ -1,11 +1,17 @@
 import re
 import unittest
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import httpx
 from bson import ObjectId
 from pymongo import MongoClient
+
+try:
+    from tests.query_case_loader import load_query_cases_with_expected_results
+except ModuleNotFoundError:
+    from query_case_loader import load_query_cases_with_expected_results
 
 
 def _load_env_file(path: str = ".env") -> Dict[str, str]:
@@ -156,6 +162,10 @@ class DBRelationshipIntegrityTests(unittest.TestCase):
 class QueryMatrixRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        run_matrix = str(os.getenv("RUN_QUERY_MATRIX_TESTS", "")).strip().lower()
+        if run_matrix not in {"1", "true", "yes", "on"}:
+            raise unittest.SkipTest("Set RUN_QUERY_MATRIX_TESTS=1 to run live query-matrix regression tests.")
+
         env = _load_env_file()
         uri = env.get("MONGODB_URI")
         db_name = env.get("MONGODB_DB_NAME")
@@ -223,6 +233,19 @@ class QueryMatrixRegressionTests(unittest.TestCase):
         self.assertNotIn("Error code:", rendered, msg=f"Tool error response for query: {query}")
         return payload
 
+    def _assert_subset(self, actual: Dict, expected_subset: Dict, query: str) -> None:
+        for key, expected_value in expected_subset.items():
+            self.assertIn(key, actual, msg=f"Missing extracted argument '{key}' for query: {query}")
+            actual_value = actual.get(key)
+            if isinstance(expected_value, list):
+                self.assertEqual(
+                    sorted(expected_value),
+                    sorted(actual_value or []),
+                    msg=f"Unexpected list value for '{key}' on query: {query}",
+                )
+            else:
+                self.assertEqual(expected_value, actual_value, msg=f"Unexpected value for '{key}' on query: {query}")
+
     def test_core_queries(self) -> None:
         queries = [
             "which districts are available",
@@ -236,6 +259,46 @@ class QueryMatrixRegressionTests(unittest.TestCase):
         for q in queries:
             with self.subTest(query=q):
                 self._query(q, "matrix_core_session", "matrix_core_chat")
+
+    def test_expected_result_matrix_queries(self) -> None:
+        cases = load_query_cases_with_expected_results()
+        for case in cases:
+            case_id = str(case.get("id") or "unknown")
+            query = str(case.get("query") or "").strip()
+            expected = case.get("expected_result") or {}
+            expected_tool = str(expected.get("tool") or "").strip()
+            expected_subset = expected.get("args_subset") or {}
+            absent_keys = expected.get("absent_keys") or []
+            must_contain = expected.get("response_should_contain") or []
+            must_not_contain = expected.get("response_should_not_contain") or []
+
+            self.assertTrue(query, msg=f"Case '{case_id}' query is empty")
+            self.assertTrue(expected_tool, msg=f"Case '{case_id}' missing expected_result.tool")
+            self.assertIsInstance(expected_subset, dict, msg=f"Case '{case_id}' args_subset must be a dict")
+            self.assertIsInstance(absent_keys, list, msg=f"Case '{case_id}' absent_keys must be a list")
+            self.assertIsInstance(must_contain, list, msg=f"Case '{case_id}' response_should_contain must be a list")
+            self.assertIsInstance(
+                must_not_contain,
+                list,
+                msg=f"Case '{case_id}' response_should_not_contain must be a list",
+            )
+
+            with self.subTest(case=case_id):
+                payload = self._query(query, f"matrix_expected_session_{case_id}", f"matrix_expected_chat_{case_id}")
+                self.assertEqual(expected_tool, payload.get("routed_to"), msg=f"Tool mismatch for case: {case_id}")
+
+                extracted_args = payload.get("extracted_arguments") or {}
+                self.assertIsInstance(extracted_args, dict, msg=f"Non-dict extracted_arguments for case: {case_id}")
+                self._assert_subset(extracted_args, expected_subset, query)
+                for key in absent_keys:
+                    self.assertNotIn(key, extracted_args, msg=f"Unexpected key '{key}' in case: {case_id}")
+
+                rendered = str(payload.get("response") or "")
+                lowered = rendered.lower()
+                for snippet in must_contain:
+                    self.assertIn(str(snippet).lower(), lowered, msg=f"Missing response text for case: {case_id}")
+                for snippet in must_not_contain:
+                    self.assertNotIn(str(snippet).lower(), lowered, msg=f"Unexpected response text for case: {case_id}")
 
     def test_district_rank_unit_matrix_queries(self) -> None:
         generated: List[str] = []

@@ -1,0 +1,1046 @@
+[
+  {
+    "id": "case_001_list_all_si_in_guntur_and_chittoor_districts_and_show_their_",
+    "query": "list all SI in guntur and chittoor districts and show their contact details",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector",
+        "district_names": [
+          "Guntur",
+          "Chittoor"
+        ],
+        "page_size": 200
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_002_who_is_the_sdpo_of_kuppam_and_what_is_his_mobile_number",
+    "query": "who is the SDPO of kuppam and what is his mobile number",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "kuppam SDPO"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_003_show_me_units_in_guntur_range_and_also_vacancies_in_guntur_d",
+    "query": "show me units in guntur range and also vacancies in guntur district",
+    "expected_result": {
+      "tool": "list_units_in_district",
+      "args_subset": {
+        "unit_type_name": "Range",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_004_how_many_ranges_in_ap_and_list_them",
+    "query": "how many ranges in AP and list them",
+    "expected_result": {
+      "tool": "search_unit",
+      "args_subset": {
+        "unit_type_name": "Range"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_005_show_recent_transfers_in_guntur_for_15_days_and_who_is_curre",
+    "query": "show recent transfers in guntur for 15 days and who is current SHO of guntur ps",
+    "expected_result": {
+      "tool": "query_recent_transfers",
+      "args_subset": {
+        "district_name": "Guntur",
+        "days": 15
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_006_find_all_constables_in_guntur_district_and_which_districts_d",
+    "query": "find all constables in guntur district and which districts do they belong to",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Constable",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_007_show_all_sis_and_for_each_district_give_count",
+    "query": "show all SIs and for each district give count",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_008_where_is_addl_dgp_lo_and_who_heads_it",
+    "query": "where is Addl DGP LO and who heads it",
+    "expected_result": {
+      "tool": "search_unit",
+      "args_subset": {
+        "name": "Addl DGP LO"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_009_sp_of_guntur_dpo_and_list_all_si_under_guntur_district",
+    "query": "SP of guntur dpo and list all SI under guntur district",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "guntur dpo"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_010_list_units_in_guntur_range_and_then_who_is_in_charge_of_arun",
+    "query": "list units in guntur range and then who is in charge of arundelpet ps",
+    "expected_result": {
+      "tool": "list_units_in_district",
+      "args_subset": {
+        "unit_type_name": "Range",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_011_how_many_senior_officers_si_and_above_are_in_each_district_a",
+    "query": "how many senior officers si and above are in each district and compare guntur vs chittoor",
+    "expected_result": {
+      "tool": "get_personnel_distribution",
+      "args_subset": {
+        "group_by": "rank",
+        "district_names": [
+          "Chittoor",
+          "Guntur"
+        ]
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_012_who_has_designation_of_sdpo_and_where_is_kuppam_sdpo",
+    "query": "who has designation of SDPO and where is kuppam sdpo",
+    "expected_result": {
+      "tool": "search_personnel",
+      "args_subset": {
+        "designation_name": "SDPO"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_013_show_all_si_in_guntur_district_and_show_for_which_unit_these",
+    "query": "show all SI in guntur district and show for which unit these SI's are attached",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_014_show_all_asis_in_annamayya_district_and_give_phone_numbers",
+    "query": "show all ASIs in annamayya district and give phone numbers",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "district_name": "Annamayya"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_015_show_all_hcs_in_chittoor_district_and_then_list_only_active_",
+    "query": "show all HCs in chittoor district and then list only active personnel",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "district_name": "Hcs Chittoor"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_016_list_circle_inspectors_in_guntur_district_and_show_their_ema",
+    "query": "list circle inspectors in guntur district and show their emails",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Circle Inspector",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_017_how_many_personnel_are_in_guntur_district_and_also_compare_w",
+    "query": "how many personnel are in guntur district and also compare with krishna district",
+    "expected_result": {
+      "tool": "get_personnel_distribution",
+      "args_subset": {
+        "group_by": "rank",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_018_list_all_units_in_guntur_district_and_then_show_hierarchy_of",
+    "query": "list all units in guntur district and then show hierarchy of guntur district",
+    "expected_result": {
+      "tool": "get_unit_hierarchy",
+      "args_subset": {
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_019_show_hierarchy_of_chittoor_district_and_list_police_stations",
+    "query": "show hierarchy of chittoor district and list police stations only",
+    "expected_result": {
+      "tool": "get_unit_hierarchy",
+      "args_subset": {
+        "district_name": "Chittoor"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_020_find_missing_village_mappings_in_guntur_district_and_list_af",
+    "query": "find missing village mappings in guntur district and list affected units",
+    "expected_result": {
+      "tool": "find_missing_village_mappings",
+      "args_subset": {
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_021_which_villages_are_mapped_to_arundelpet_ps_and_also_show_cou",
+    "query": "which villages are mapped to arundelpet ps and also show count",
+    "expected_result": {
+      "tool": "get_village_coverage",
+      "args_subset": {
+        "unit_name": "arundelpet"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_022_who_was_the_sho_of_guntur_ps_in_last_30_days_and_show_contac",
+    "query": "who was the sho of guntur ps in last 30 days and show contact",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "guntur ps"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_023_show_recent_transfers_for_30_days_and_group_by_district",
+    "query": "show recent transfers for 30 days and group by district",
+    "expected_result": {
+      "tool": "query_recent_transfers",
+      "args_subset": {
+        "district_name": "By",
+        "days": 30
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_024_show_recent_transfers_in_vijayawada_for_7_days_and_list_name",
+    "query": "show recent transfers in vijayawada for 7 days and list names",
+    "expected_result": {
+      "tool": "query_recent_transfers",
+      "args_subset": {
+        "district_name": "Vijayawada",
+        "days": 7
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_025_count_vacancies_in_guntur_district_and_show_rank_wise_split",
+    "query": "count vacancies in guntur district and show rank wise split",
+    "expected_result": {
+      "tool": "get_personnel_distribution",
+      "args_subset": {
+        "group_by": "rank",
+        "district_name": "Vacancies Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_026_show_vacancies_in_annamayya_district_and_compare_with_chitto",
+    "query": "show vacancies in annamayya district and compare with chittoor",
+    "expected_result": {
+      "tool": "count_vacancies_by_unit_rank",
+      "args_subset": {
+        "district_name": "Annamayya"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_027_list_all_si_in_guntur_district_and_next_page_and_then_show_d",
+    "query": "list all SI in guntur district and next page and then show details of 2nd one",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_028_where_is_kuppam_sdpo_and_who_is_in_charge_there",
+    "query": "where is kuppam sdpo and who is in charge there",
+    "expected_result": {
+      "tool": "search_unit",
+      "args_subset": {
+        "name": "kuppam sdpo"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_029_who_is_the_sp_of_guntur_and_show_office_unit",
+    "query": "who is the sp of guntur and show office unit",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Superintendent of Police",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_030_who_is_the_sp_of_guntur_dpo_and_what_is_mobile_number",
+    "query": "who is the sp of guntur dpo and what is mobile number",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "guntur dpo"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_031_sp_of_guntur_gpo_and_who_was_previous_officer",
+    "query": "sp of guntur gpo and who was previous officer",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "guntur DPO"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_032_who_is_in_charge_of_guntur_traffic_ps_and_give_posting_histo",
+    "query": "who is in charge of guntur traffic ps and give posting history",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "guntur traffic ps"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_033_who_has_user_id_14402876_and_show_assignment_details",
+    "query": "who has user id 14402876 and show assignment details",
+    "expected_result": {
+      "tool": "search_personnel",
+      "args_subset": {
+        "user_id": "14402876"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_034_is_ravi_kumar_a_responsible_user_and_where_is_he_posted",
+    "query": "is ravi kumar a responsible user and where is he posted",
+    "expected_result": {
+      "tool": "query_recent_transfers",
+      "args_subset": {
+        "days": 30
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_035_search_person_ravi_kumar_and_show_district_and_unit",
+    "query": "search person ravi kumar and show district and unit",
+    "expected_result": {
+      "tool": "list_districts",
+      "args_subset": {},
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_036_tell_me_about_person_a_ashok_kumar_and_include_contact_detai",
+    "query": "tell me about person a ashok kumar and include contact details",
+    "expected_result": {
+      "tool": "search_personnel",
+      "args_subset": {
+        "name": "person a ashok kumar and include contact details"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_037_show_personnel_in_guntur_ps_and_list_only_si_and_above",
+    "query": "show personnel in guntur ps and list only SI and above",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector",
+        "rank_relation": "above",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_038_show_personnel_in_dachepalli_ps_and_include_user_ids",
+    "query": "show personnel in dachepalli ps and include user ids",
+    "expected_result": {
+      "tool": "query_personnel_by_unit",
+      "args_subset": {
+        "unit_name": "dachepalli"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_039_list_all_units_in_chittoor_district_and_exclude_special_wing",
+    "query": "list all units in chittoor district and exclude special wing",
+    "expected_result": {
+      "tool": "list_units_in_district",
+      "args_subset": {
+        "district_name": "Chittoor"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_040_show_me_units_in_guntur_range_and_then_units_in_vijayawada_r",
+    "query": "show me units in guntur range and then units in vijayawada range",
+    "expected_result": {
+      "tool": "list_units_in_district",
+      "args_subset": {
+        "unit_type_name": "Range",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_041_how_many_ranges_in_andhra_pradesh_and_list_all_range_units",
+    "query": "how many ranges in andhra pradesh and list all range units",
+    "expected_result": {
+      "tool": "search_unit",
+      "args_subset": {
+        "unit_type_name": "Range"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_042_list_all_districts_and_then_show_unit_hierarchy_for_availabl",
+    "query": "list all districts and then show unit hierarchy for available districts",
+    "expected_result": {
+      "tool": "list_districts",
+      "args_subset": {},
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_043_available_districts_and_total_unit_counts_for_each_district",
+    "query": "available districts and total unit counts for each district",
+    "expected_result": {
+      "tool": "list_districts",
+      "args_subset": {},
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_044_show_district_wise_personnel_distribution_and_compare_guntur",
+    "query": "show district wise personnel distribution and compare guntur vs chittoor",
+    "expected_result": {
+      "tool": "get_personnel_distribution",
+      "args_subset": {
+        "group_by": "rank",
+        "district_names": [
+          "Chittoor",
+          "Guntur"
+        ]
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_045_show_rank_wise_distribution_in_guntur_district_and_include_t",
+    "query": "show rank wise distribution in guntur district and include totals",
+    "expected_result": {
+      "tool": "get_personnel_distribution",
+      "args_subset": {
+        "group_by": "rank",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_046_how_many_si_are_in_guntur_district_and_list_them",
+    "query": "how many si are in guntur district and list them",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_047_how_many_constables_are_in_guntur_and_chittoor_districts",
+    "query": "how many constables are in guntur and chittoor districts",
+    "expected_result": {
+      "tool": "list_districts",
+      "args_subset": {},
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_048_show_sdpo_designation_holders_and_list_their_districts",
+    "query": "show sdpo designation holders and list their districts",
+    "expected_result": {
+      "tool": "search_personnel",
+      "args_subset": {
+        "designation_name": "Their Districts"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_049_who_has_designation_of_spdo_and_show_location",
+    "query": "who has designation of spdo and show location",
+    "expected_result": {
+      "tool": "search_personnel",
+      "args_subset": {
+        "designation_name": "SDPO"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_050_show_transfer_movement_in_guntur_district_for_last_10_days",
+    "query": "show transfer movement in guntur district for last 10 days",
+    "expected_result": {
+      "tool": "query_recent_transfers",
+      "args_subset": {
+        "district_name": "Guntur",
+        "days": 10
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_051_show_postings_and_transfers_in_guntur_for_60_days_and_list_a",
+    "query": "show postings and transfers in guntur for 60 days and list affected units",
+    "expected_result": {
+      "tool": "query_recent_transfers",
+      "args_subset": {
+        "district_name": "Guntur",
+        "days": 60
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_052_find_units_without_village_mapping_in_chittoor_district_and_",
+    "query": "find units without village mapping in chittoor district and show personnel count",
+    "expected_result": {
+      "tool": "get_personnel_distribution",
+      "args_subset": {
+        "group_by": "rank",
+        "district_name": "Without Village Mapping Chittoor"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_053_where_is_district_police_office_of_guntur_and_who_heads_it",
+    "query": "where is district police office of guntur and who heads it",
+    "expected_result": {
+      "tool": "search_unit",
+      "args_subset": {
+        "name": "district police office of guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_054_where_is_ig_guntur_range_and_show_units_under_it",
+    "query": "where is ig guntur range and show units under it",
+    "expected_result": {
+      "tool": "search_unit",
+      "args_subset": {
+        "name": "ig guntur range"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_055_show_hierarchy_starting_from_guntur_dpo_and_include_depth_3",
+    "query": "show hierarchy starting from guntur dpo and include depth 3",
+    "expected_result": {
+      "tool": "get_unit_hierarchy",
+      "args_subset": {
+        "root_unit_name": "show hierarchy starting from guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_056_show_hierarchy_of_guntur_and_personnel_distribution_in_same_",
+    "query": "show hierarchy of guntur and personnel distribution in same district",
+    "expected_result": {
+      "tool": "get_personnel_distribution",
+      "args_subset": {
+        "group_by": "rank"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_057_list_all_si_in_alphabetical_order_and_show_district",
+    "query": "list all si in alphabetical order and show district",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_058_show_all_inspectors_in_guntur_district_and_then_compare_with",
+    "query": "show all inspectors in guntur district and then compare with prakasam",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Inspector",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_059_compare_guntur_vs_chittoor_vacancies_and_show_top_deficient_",
+    "query": "compare guntur vs chittoor vacancies and show top deficient ranks",
+    "expected_result": {
+      "tool": "count_vacancies_by_unit_rank",
+      "args_subset": {},
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_060_show_command_history_for_kuppam_sdpo_in_last_90_days",
+    "query": "show command history for kuppam sdpo in last 90 days",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "kuppam",
+        "days": 90
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_061_who_was_in_charge_of_arundelpet_ps_in_last_15_days",
+    "query": "who was in charge of arundelpet ps in last 15 days",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "arundelpet ps"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_062_show_all_personnel_in_guntur_district_with_designation_sdpo",
+    "query": "show all personnel in guntur district with designation sdpo",
+    "expected_result": {
+      "tool": "query_personnel_by_unit",
+      "args_subset": {
+        "unit_name": "guntur district with designation"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_063_show_all_personnel_named_kumar_in_guntur_district_and_list_u",
+    "query": "show all personnel named kumar in guntur district and list units",
+    "expected_result": {
+      "tool": "list_units_in_district",
+      "args_subset": {
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_064_find_officer_with_mobile_9000000001_and_show_current_assignm",
+    "query": "find officer with mobile 9000000001 and show current assignment",
+    "expected_result": {
+      "tool": "search_personnel",
+      "args_subset": {
+        "mobile": "9000000001"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_065_list_all_units_in_guntur_district_and_who_is_responsible_use",
+    "query": "list all units in guntur district and who is responsible user for each",
+    "expected_result": {
+      "tool": "check_responsible_user",
+      "args_subset": {},
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_066_who_is_sho_of_arundelpet_ps_and_list_previous_two_officers",
+    "query": "who is sho of arundelpet ps and list previous two officers",
+    "expected_result": {
+      "tool": "get_unit_command_history",
+      "args_subset": {
+        "unit_name": "arundelpet ps"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_067_give_me_si_list_guntur_plus_attached_unit_plus_transferred_i",
+    "query": "give me si list guntur plus attached unit plus transferred in last 60 days",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  },
+  {
+    "id": "case_068_show_all_si_in_guntur_district_and_which_districts_do_they_b",
+    "query": "show all SI in guntur district and which districts do they belong to",
+    "expected_result": {
+      "tool": "query_personnel_by_rank",
+      "args_subset": {
+        "rank_name": "Sub-Inspector",
+        "district_name": "Guntur"
+      },
+      "absent_keys": [],
+      "response_should_contain": [],
+      "response_should_not_contain": [
+        "Error code:"
+      ]
+    }
+  }
+]

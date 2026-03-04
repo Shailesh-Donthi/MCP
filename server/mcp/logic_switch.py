@@ -1,1 +1,1 @@
-﻿USE_V2 = False
+USE_V2 = True

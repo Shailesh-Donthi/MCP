@@ -1424,6 +1424,29 @@ def _format_vacancy_response(data: Any, arguments: Dict[str, Any]) -> str:
 
             return response
 
+        # Shape C: fallback rank distribution when unit-level linkage is absent.
+        rank_distribution = data.get("rank_distribution", [])
+        if isinstance(rank_distribution, list) and rank_distribution:
+            total_personnel = summary.get("totalPersonnel")
+            if total_personnel is None:
+                total_personnel = sum(int(item.get("count") or 0) for item in rank_distribution if isinstance(item, dict))
+
+            response = "Personnel Strength by Rank:\n"
+            response += "  - Units Covered: 0\n"
+            response += f"  - Total Personnel: {int(total_personnel)}\n"
+            response += "  - Note: Exact vacancies require sanctioned strength data.\n"
+            response += "  - Source: rank-wise fallback (unit linkage unavailable).\n"
+
+            response += "\nRank-wise personnel:\n"
+            for item in rank_distribution[:12]:
+                if not isinstance(item, dict):
+                    continue
+                rank_name = item.get("rankName") or "Unknown"
+                count = int(item.get("count") or 0)
+                response += f"  - {rank_name}: {count}\n"
+
+            return response
+
         # Empty dict-like payload
         return "No vacancy data available."
 

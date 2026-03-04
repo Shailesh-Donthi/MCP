@@ -6,6 +6,7 @@ import asyncio
 import copy
 import json
 import logging
+import re
 import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
@@ -473,10 +474,58 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> Tuple[str, Di
         "vacancies_by_unit": "count_vacancies_by_unit_rank",
     }
 
+    def _assignment_is_primary(text: str) -> bool:
+        lowered = str(text or "").lower()
+        return bool(
+            re.search(r"^\s*(?:show|list|get|find)?\s*(?:all\s+)?(?:assignments?|posting|postings)\b", lowered)
+            or re.search(r"\b(?:assignments?|posting|posted)\s+(?:for|of|under|in)\b", lowered)
+        )
+
+    def _person_lookup_dominant(text: str) -> bool:
+        lowered = str(text or "").lower()
+        return bool(
+            re.search(r"\bwho\s+has\s+user\s*id\b", lowered)
+            or re.search(r"\b(?:who\s+is|find|search|lookup)\s+(?:officer|person|personnel)\b", lowered)
+            or re.search(r"\btell\s+me\s+about\b", lowered)
+            or re.search(r"\b(?:mobile|phone|email|contact|badge)\b", lowered)
+        )
+
+    def _extract_person_lookup_args(text: str, seed: Dict[str, Any]) -> Dict[str, Any]:
+        args: Dict[str, Any] = {}
+        for key in ("user_id", "mobile", "email", "name"):
+            value = (seed or {}).get(key)
+            if isinstance(value, str):
+                value = value.strip()
+            if value:
+                args[key] = value
+
+        if "user_id" not in args:
+            uid_match = re.search(r"\b(?:user\s*id|userid)\s*[:#-]?\s*(\d{6,12})\b", text, re.IGNORECASE)
+            if uid_match:
+                args["user_id"] = uid_match.group(1)
+        if "mobile" not in args:
+            mobile_match = re.search(r"\b(?:mobile|phone)\s*[:#-]?\s*(\d{8,15})\b", text, re.IGNORECASE)
+            if mobile_match:
+                args["mobile"] = mobile_match.group(1)
+        if "email" not in args:
+            email_match = re.search(r"\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b", text, re.IGNORECASE)
+            if email_match:
+                args["email"] = email_match.group(1)
+        return args
+
     def _normalize_with_repairs(tool_name: Optional[str], arguments: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         normalized_tool = str(tool_name or "__help__").strip() or "__help__"
         normalized_tool = tool_aliases.get(normalized_tool, normalized_tool)
         normalized_args = dict(arguments or {})
+        if (
+            normalized_tool == "search_assignment"
+            and _person_lookup_dominant(query)
+            and not _assignment_is_primary(query)
+        ):
+            person_args = _extract_person_lookup_args(query, normalized_args)
+            if person_args:
+                normalized_tool = "search_personnel"
+                normalized_args = person_args
         if normalized_tool not in {"__help__", "search_assignment"}:
             try:
                 from mcp.router import repair_route

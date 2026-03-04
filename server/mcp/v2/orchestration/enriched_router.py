@@ -102,6 +102,24 @@ def _extract_place_hint(query: str) -> Optional[str]:
     return None
 
 
+def _is_primary_assignment_query(query_lower: str) -> bool:
+    text = _normalize_text(query_lower).lower()
+    return bool(
+        re.search(r"^\s*(?:show|list|get|find)?\s*(?:all\s+)?(?:assignments?|posting|postings)\b", text)
+        or re.search(r"\b(?:assignments?|posting|posted)\s+(?:for|of|under|in)\b", text)
+    )
+
+
+def _is_person_lookup_dominant(query_lower: str) -> bool:
+    text = _normalize_text(query_lower).lower()
+    return bool(
+        re.search(r"\bwho\s+has\s+user\s*id\b", text)
+        or re.search(r"\b(?:who\s+is|find|search|lookup)\s+(?:officer|person|personnel)\b", text)
+        or re.search(r"\btell\s+me\s+about\b", text)
+        or re.search(r"\b(?:mobile|phone|email|contact|badge)\b", text)
+    )
+
+
 def route_query_to_tool_enriched(
     query: str,
     *,
@@ -174,17 +192,32 @@ def route_query_to_tool_enriched(
         return "check_responsible_user", {}
 
     if can_use("search_assignment") and re.search(r"\b(assignments?|assigned|posting|posted)\b", query_lower):
-        args: Dict[str, str] = {}
-        uid_match = re.search(r"\b(?:user\s*id|userid)\s*[:#-]?\s*(\d{6,12})\b", raw_query, re.IGNORECASE)
-        if uid_match:
-            args["user_id"] = uid_match.group(1)
-        unit_name = _extract_tail_name(
-            raw_query,
-            r"\b(?:in|to|under)\s+([A-Za-z0-9][A-Za-z0-9\s\.'/-]{1,120}?)(?:\s+(?:unit|station|ps|assignments?)|\?|$)",
-        )
-        if unit_name:
-            args["unit_name"] = unit_name
-        return "search_assignment", args
+        # Keep assignment route for assignment-first requests, but avoid
+        # overriding person-identification queries that only add assignment as
+        # a secondary detail.
+        if _is_person_lookup_dominant(query_lower) and not _is_primary_assignment_query(query_lower):
+            pass
+        else:
+            args: Dict[str, str] = {}
+            uid_match = re.search(r"\b(?:user\s*id|userid)\s*[:#-]?\s*(\d{6,12})\b", raw_query, re.IGNORECASE)
+            if uid_match:
+                args["user_id"] = uid_match.group(1)
+            unit_name = _extract_tail_name(
+                raw_query,
+                r"\b(?:in|to|under)\s+([A-Za-z0-9][A-Za-z0-9\s\.'/-]{1,120}?)(?:\s+(?:unit|station|ps|assignments?)|\?|$)",
+            )
+            if unit_name:
+                args["unit_name"] = unit_name
+            return "search_assignment", args
+
+    if can_use("search_personnel"):
+        mobile_match = re.search(r"\b(?:mobile|phone)\s*[:#-]?\s*(\d{8,15})\b", raw_query, re.IGNORECASE)
+        if mobile_match:
+            return "search_personnel", {"mobile": mobile_match.group(1)}
+
+        email_match = re.search(r"\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b", raw_query, re.IGNORECASE)
+        if email_match:
+            return "search_personnel", {"email": email_match.group(1)}
 
     uid_match = re.search(r"\b(?:user\s*id|userid)\s*[:#-]?\s*(\d{6,12})\b", raw_query, re.IGNORECASE)
     if uid_match and can_use("search_personnel"):

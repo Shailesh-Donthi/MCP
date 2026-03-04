@@ -243,6 +243,33 @@ class PersonnelFormatterTests(unittest.TestCase):
         self.assertIn("Guntur", response)
         self.assertIn("Active assignments", response)
 
+    def test_vacancy_formatter_handles_rank_distribution_fallback(self):
+        result = {
+            "success": True,
+            "data": {
+                "units": [],
+                "summary": {"totalUnits": 0, "totalPersonnel": 3265},
+                "rank_distribution": [
+                    {"rankName": "Police Constable", "count": 1886},
+                    {"rankName": "Head Constable", "count": 705},
+                    {"rankName": "Sub Inspector", "count": 189},
+                ],
+            },
+            "pagination": {"page": 1, "page_size": 50, "total": 3265, "total_pages": 66},
+            "metadata": {"fallback": "personnel_distribution_rank"},
+        }
+
+        response = generate_natural_language_response(
+            "list all vacancies by rank",
+            "count_vacancies_by_unit_rank",
+            {},
+            result,
+        )
+
+        self.assertIn("Personnel Strength by Rank", response)
+        self.assertIn("Police Constable", response)
+        self.assertIn("Total Personnel: 3265", response)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -51,6 +51,93 @@ def repair_route(
         text = re.sub(r"\s+\b(?:in|for|during|within)\b\s*$", "", text, flags=re.IGNORECASE).strip()
         return text
 
+    def _extract_primary_clause(text: str) -> str:
+        raw = re.sub(r"\s+", " ", str(text or "")).strip()
+        if not raw:
+            return ""
+        # Split only when conjunction starts a new intent/action clause.
+        parts = re.split(
+            r"\s+\b(?:and\s+then|then|and\s+also|also|and)\b\s+(?="
+            r"(?:show|list|get|give|provide|find|where|who|what|which|how|compare|count|next|previous|details?|info|"
+            r"in[\s-]?charge|heads?|belongs?)\b"
+            r")",
+            raw,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )
+        return parts[0].strip() if parts else raw
+
+    def _trim_conjoined_tail(value: str) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not text:
+            return text
+        text = re.sub(
+            r"\s+\b(?:and\s+then|then|and\s+also|also|and)\b\s+"
+            r"(?:show|list|get|give|provide|find|where|who|what|which|how|compare|count|next|previous|details?|info|"
+            r"in[\s-]?charge|heads?|belongs?)\b.*$",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        ).strip()
+        return text
+
+    def _extract_range_place(text: str) -> Optional[str]:
+        if not text:
+            return None
+        patterns = [
+            r"\b(?:in|for|of|under)\s+([A-Za-z][A-Za-z\s]{1,60}?)\s+ranges?\b",
+            r"\b([A-Za-z][A-Za-z\s]{1,60}?)\s+ranges?\b",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if not m:
+                continue
+            value = _trim_conjoined_tail(m.group(1))
+            value = re.sub(r"\s+", " ", value).strip()
+            if value:
+                return value
+        return None
+
+    def _extract_compare_places(text: str) -> list[str]:
+        if not text:
+            return []
+        places: list[str] = []
+        patterns = [
+            r"\bcompare\s+([A-Za-z][A-Za-z\s]{1,50}?)\s+(?:vs|versus)\s+([A-Za-z][A-Za-z\s]{1,50})(?:\b|$)",
+            r"\b([A-Za-z][A-Za-z\s]{1,50}?)\s+(?:vs|versus)\s+([A-Za-z][A-Za-z\s]{1,50})(?:\b|$)",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if not m:
+                continue
+            for idx in (1, 2):
+                candidate = re.sub(r"\s+", " ", m.group(idx)).strip(" ?.")
+                candidate = _trim_conjoined_tail(candidate)
+                candidate = _sanitize_district_value(candidate)
+                if candidate and candidate not in places:
+                    places.append(candidate)
+            if places:
+                break
+        return places
+
+    def _extract_transfer_place(text: str) -> Optional[str]:
+        if not text:
+            return None
+        patterns = [
+            r"\b(?:transfers?|postings?|movement)\s+(?:in|for|of|under)\s+([A-Za-z][A-Za-z\s]{1,60}?)(?:\s+district)?(?:\s+for\s+\d+\s+days?)?(?:\b|$)",
+            r"\b(?:in|for|of|under)\s+([A-Za-z][A-Za-z\s]{1,60}?)(?:\s+district)?\s+(?:for|in)\s+\d+\s+days?\b",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if not m:
+                continue
+            value = re.sub(r"\s+", " ", m.group(1)).strip(" ?.")
+            value = _trim_conjoined_tail(value)
+            value = _sanitize_district_value(value)
+            if value:
+                return value
+        return None
+
     def _extract_bare_info_subject(text: str) -> Optional[str]:
         if not text:
             return None
@@ -63,6 +150,7 @@ def repair_route(
             if not m:
                 continue
             value = re.sub(r"\s+", " ", m.group(1)).strip(" ?.")
+            value = _trim_conjoined_tail(value)
             value = re.sub(r"^(?:on|about|for|of)\s+", "", value, flags=re.IGNORECASE).strip()
             if not value:
                 continue
@@ -72,8 +160,23 @@ def repair_route(
         return None
 
     def _canonicalize_role_unit(role: str, raw_target: str) -> Optional[str]:
+        def _smart_title(text: str) -> str:
+            acronyms = {"PS", "SDPO", "SPDO", "DPO", "GPO", "IGP", "AO", "PC", "SI", "ASI", "HC"}
+            words = [w for w in re.split(r"\s+", text or "") if w]
+            normalized: list[str] = []
+            for word in words:
+                plain = re.sub(r"[^A-Za-z]", "", word).upper()
+                if plain in acronyms:
+                    normalized.append(plain)
+                elif re.fullmatch(r"[A-Z]{2,5}", word):
+                    normalized.append(word)
+                else:
+                    normalized.append(word.capitalize())
+            return " ".join(normalized).strip()
+
         target = re.sub(r"\s+", " ", (raw_target or "")).strip(" ?")
         target = _strip_temporal_tail(target)
+        target = _trim_conjoined_tail(target)
         if not target:
             return None
         target = re.sub(r"^(?:the|a|an)\s+", "", target, flags=re.IGNORECASE).strip()
@@ -97,7 +200,7 @@ def repair_route(
                 target = f"{target} PS"
             target = re.sub(r"\bPS\b(?:\s+\bPS\b)+", "PS", target, flags=re.IGNORECASE)
 
-        return re.sub(r"\s+", " ", target).strip()
+        return _smart_title(re.sub(r"\s+", " ", target).strip())
 
     def _extract_role_unit_candidate(text: str) -> Optional[str]:
         if not text:
@@ -131,6 +234,7 @@ def repair_route(
                 continue
             target = re.sub(r"\s+", " ", (m.group(1) or "")).strip(" ?")
             target = _strip_temporal_tail(target)
+            target = _trim_conjoined_tail(target)
             target = re.sub(r"^(?:the|a|an)\s+", "", target, flags=re.IGNORECASE).strip()
             if not target:
                 continue
@@ -153,6 +257,7 @@ def repair_route(
             return None
         value = re.sub(r"\s+", " ", m.group(1)).strip(" ?.")
         value = _strip_temporal_tail(value)
+        value = _trim_conjoined_tail(value)
         value = re.sub(r"^(?:the|a|an)\s+", "", value, flags=re.IGNORECASE).strip()
         if not value:
             return None
@@ -177,7 +282,8 @@ def repair_route(
             m = re.search(pattern, text, re.IGNORECASE)
             if not m:
                 continue
-            value = re.sub(r"\s+", " ", m.group(1)).strip(" ?.").lower()
+            value = re.sub(r"\s+", " ", m.group(1)).strip(" ?.")
+            value = _trim_conjoined_tail(value).lower()
             value = re.sub(r"^(?:the|a|an)\s+", "", value, flags=re.IGNORECASE).strip()
             if not value:
                 continue
@@ -208,6 +314,7 @@ def repair_route(
                 continue
             value = m.group(1)
             value = re.split(r"[,\?\.;]", value, maxsplit=1)[0]
+            value = _trim_conjoined_tail(value)
             value = re.sub(r"\b(?:districts?|disctricts?|dist\.?)\b", "", value, flags=re.IGNORECASE)
             value = re.sub(r"\s+", " ", value).strip(" -")
             if not value:
@@ -250,10 +357,25 @@ def repair_route(
             "officer", "officers", "personnel", "personell", "staff", "people",
             "unit", "units", "station", "stations",
             "si", "sis", "asi", "asis", "hc", "pc", "dsp", "dysp", "sp",
+            "and", "also", "then",
+            "them", "those", "these", "this", "that",
+            "find", "show", "list", "give", "get", "provide", "tell",
+            "count", "compare", "vs", "versus",
+            "who", "what", "which", "how",
+            "for", "of", "in", "under", "to",
+            "many", "total", "number",
+            "the", "a", "an",
+            "last", "past", "previous", "current", "recent",
+            "day", "days", "week", "weeks", "month", "months", "year", "years",
         }
         value = re.sub(r"\s+", " ", str(raw_value or "")).strip()
+        value = _trim_conjoined_tail(value)
         value = re.sub(r"\s*(?:districts?|disctricts?|dist\.?)\s*$", "", value, flags=re.IGNORECASE).strip()
         if not value or _looks_like_sort_phrase(value):
+            return None
+        # Ambiguous multi-place text should be derived from place_hints, not a
+        # single district slot.
+        if re.search(r"\b(?:and|also|then)\b", value, re.IGNORECASE):
             return None
         if value.lower() in {"db", "database", "the db", "the database"}:
             return None
@@ -290,6 +412,8 @@ def repair_route(
         "count_vacancies": "count_vacancies_by_unit_rank",
         "vacancies_by_unit": "count_vacancies_by_unit_rank",
     }
+    primary_query = _extract_primary_clause(query or "")
+    primary_query_lower = primary_query.lower()
     tool_name = tool_aliases.get(str(tool_name or "").strip(), tool_name)
     master_collection = infer_master_collection_from_query(query or "")
     asks_master_relations = bool(
@@ -333,7 +457,9 @@ def repair_route(
     place_hints = extract_place_hints(query)
     if not place_hints and merged != query:
         place_hints = extract_place_hints(merged)
-    place = place_hints[0] if place_hints else (extract_place_hint(query) or extract_place_hint(merged))
+    place = place_hints[0] if place_hints else (
+        extract_place_hint(primary_query or query) or extract_place_hint(query) or extract_place_hint(merged)
+    )
     sanitized_place_hints = []
     for raw_place in place_hints:
         normalized_place = _sanitize_district_value(raw_place)
@@ -348,6 +474,11 @@ def repair_route(
         place = hierarchy_place_hint
     if hierarchy_place_hint and hierarchy_place_hint not in place_hints:
         place_hints = [hierarchy_place_hint, *place_hints][:4]
+    compare_places = _extract_compare_places(query)
+    for candidate in compare_places:
+        if candidate not in place_hints:
+            place_hints.append(candidate)
+    place_hints = place_hints[:4]
     unit_hint = extract_unit_hint(query) or extract_unit_hint(merged)
     rank_hints = extract_rank_hints(query)
     if not rank_hints and merged != query:
@@ -430,17 +561,17 @@ def repair_route(
     asks_unit_leader_name = bool(
         re.search(
             r"\b(?:who\s+is|what\s+is\s+the\s+name\s+of|name\s+of)\b.*\b(?:sho|sdpo|spdo|in[\s-]?charge|responsible\s*user|head)\b",
-            query_lower,
+            primary_query_lower or query_lower,
         )
-        or re.search(r"\b(?:sho|sdpo|spdo|in[\s-]?charge)\b\s+of\b", query_lower)
-        or re.search(r"^\s*(?:the\s+)?(?:sho|sdpo|spdo)\s+[A-Za-z0-9]", query, re.IGNORECASE)
+        or re.search(r"\b(?:sho|sdpo|spdo|in[\s-]?charge)\b\s+of\b", primary_query_lower or query_lower)
+        or re.search(r"^\s*(?:the\s+)?(?:sho|sdpo|spdo)\s+[A-Za-z0-9]", primary_query or query, re.IGNORECASE)
     )
     asks_designation_lookup = bool(
         designation_hint
         and (
-            re.search(r"\b(designation|post|role)\b", query_lower)
-            or re.search(r"\blist\s+(?:all\s+)?(?:sdpo|spdo)s?\b", query_lower)
-            or re.search(r"\bwho\s+has\b", query_lower)
+            re.search(r"\b(designation|post|role)\b", primary_query_lower or query_lower)
+            or re.search(r"\blist\s+(?:all\s+)?(?:sdpo|spdo)s?\b", primary_query_lower or query_lower)
+            or re.search(r"\bwho\s+has\b", primary_query_lower or query_lower)
         )
     )
     mentions_personnel_typo_or_synonym = bool(
@@ -493,8 +624,12 @@ def repair_route(
             )
         ) >= 2
     )
-    sp_unit_candidate = _extract_sp_of_unit_candidate(query) or _extract_sp_of_unit_candidate(merged)
-    where_is_target = _extract_where_is_target(query)
+    sp_unit_candidate = (
+        _extract_sp_of_unit_candidate(primary_query or query)
+        or _extract_sp_of_unit_candidate(query)
+        or _extract_sp_of_unit_candidate(merged)
+    )
+    where_is_target = _extract_where_is_target(primary_query or query) or _extract_where_is_target(query)
 
     # "SP of <unit>" should resolve to current command/in-charge for that unit,
     # not rank listing in district.
@@ -511,9 +646,11 @@ def repair_route(
         or re.search(r"\b(?:count|total|number)\s+(?:of\s+)?ranges?\b", query_lower)
         or re.search(r"\branges?\s+(?:count|total|number)\b", query_lower)
     ):
+        range_place = _sanitize_district_value(_extract_range_place(primary_query or query) or _extract_range_place(query))
         args: Dict[str, Any] = {"unit_type_name": "Range"}
-        if place and place.lower() not in {"ap", "andhra pradesh"}:
-            args["district_name"] = place
+        district_candidate = range_place or place
+        if district_candidate and district_candidate.lower() not in {"ap", "andhra pradesh"}:
+            args["district_name"] = district_candidate
         return "search_unit", args
 
     if (
@@ -521,10 +658,11 @@ def repair_route(
         and re.search(r"\bunits?\b", query_lower)
         and re.search(r"\branges?\b", query_lower)
     ):
+        range_place = _sanitize_district_value(_extract_range_place(primary_query or query) or _extract_range_place(query))
         args: Dict[str, Any] = {"unit_type_name": "Range"}
-        district = place
+        district = range_place or place
         if district:
-            district = re.sub(r"\branges?\b", "", district, flags=re.IGNORECASE).strip()
+            district = _sanitize_district_value(re.sub(r"\branges?\b", "", district, flags=re.IGNORECASE).strip())
         if district:
             args["district_name"] = district
         return "list_units_in_district", args
@@ -606,7 +744,11 @@ def repair_route(
         return "search_personnel", {"name": person_hint}
 
     if asks_unit_leader_name:
-        role_unit = _extract_role_unit_candidate(query) or _extract_role_unit_candidate(merged)
+        role_unit = (
+            _extract_role_unit_candidate(primary_query or query)
+            or _extract_role_unit_candidate(query)
+            or _extract_role_unit_candidate(merged)
+        )
         existing_unit = (fixed_args.get("unit_name") or "").strip() if isinstance(fixed_args, dict) else ""
         unit_candidate = role_unit
         if not unit_candidate and existing_unit and not _looks_like_bad_unit_hint(existing_unit):
@@ -664,7 +806,7 @@ def repair_route(
 
     if asks_followup_district:
         prev_rank = extract_rank_hint(last_user_query or "") or rank_name
-        prev_place = extract_place_hint(last_user_query or "")
+        prev_place = extract_place_hint(last_user_query or "") or place
         if prev_rank:
             args_followup: Dict[str, Any] = {"rank_name": prev_rank}
             if prev_place:
@@ -862,6 +1004,19 @@ def repair_route(
         invalid = {"", "district", "the district", "db", "database", "the db", "the database"}
         if current_district in invalid and place:
             fixed_args["district_name"] = place
+
+    if tool_name == "query_recent_transfers":
+        transfer_place = _extract_transfer_place(primary_query or query) or _extract_transfer_place(query) or place
+        if not fixed_args.get("district_name") and transfer_place and transfer_place.lower() not in {"ap", "andhra pradesh"}:
+            fixed_args["district_name"] = transfer_place
+        days_raw = fixed_args.get("days")
+        try:
+            days_int = int(days_raw) if days_raw is not None else None
+        except Exception:
+            days_int = None
+        if days_int is None or days_int <= 0:
+            days_match = re.search(r"\b(\d+)\s*days?\b", query_lower)
+            fixed_args["days"] = int(days_match.group(1)) if days_match else 30
 
     if re.search(r"\b(there|here|that place|that unit|this unit)\b", query_lower):
         prev_unit = extract_unit_hint(last_user_query or "")

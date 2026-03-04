@@ -320,6 +320,7 @@ def extract_person_hint(text: str) -> Optional[str]:
         if m:
             value = re.sub(r"\s+", " ", m.group(1)).strip()
             value = re.sub(r"^(?:the|an)\s+", "", value, flags=re.IGNORECASE).strip()
+            value = re.sub(r"^(?:person(?:nel)?|officer)\s+", "", value, flags=re.IGNORECASE).strip()
             # Reject role-holder phrases like "SPDO of Kuppam" (not a person name).
             if re.search(r"\b(?:sho|sdpo|spdo|in[\s-]?charge|responsible\s*user|head)\b", value, re.IGNORECASE):
                 continue

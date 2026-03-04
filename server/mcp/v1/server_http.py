@@ -1585,6 +1585,29 @@ def route_query_to_tool(query: str, hint: Optional[str] = None) -> tuple[str, di
     # ==========================================================================
     if re.search(r"transfer|posting|movement|moved|posted", query_lower):
         district = extract_district(query)
+        if not district:
+            bare_place = None
+            bare_patterns = [
+                r"\b(?:transfers?|postings?|movement)\s+(?:in|for|of|under)\s+([A-Za-z][A-Za-z\s]{1,60}?)(?:\s+district)?(?:\s+for\s+\d+\s+days?)?(?:\b|$)",
+                r"\b(?:in|for|of|under)\s+([A-Za-z][A-Za-z\s]{1,60}?)(?:\s+district)?\s+(?:for|in)\s+\d+\s+days?\b",
+            ]
+            for pattern in bare_patterns:
+                m = re.search(pattern, query, re.IGNORECASE)
+                if not m:
+                    continue
+                raw = re.sub(r"\s+", " ", m.group(1)).strip(" ?.")
+                raw = re.sub(
+                    r"\s+\b(?:and\s+then|then|and\s+also|also|and)\b\s+"
+                    r"(?:show|list|get|give|provide|find|where|who|what|which|how|compare|count)\b.*$",
+                    "",
+                    raw,
+                    flags=re.IGNORECASE,
+                ).strip()
+                candidate = extract_district(f"in {raw} district")
+                if candidate:
+                    bare_place = candidate
+                    break
+            district = bare_place
         if district:
             args["district_name"] = district
         # Extract days

@@ -69,10 +69,13 @@ class RouteQueryToToolTests(unittest.TestCase):
             {"days": 15},
         )
 
-    @unittest.expectedFailure
+    def test_transfer_query_with_time_window_only_does_not_extract_fake_district(self) -> None:
+        tool, args = route_query_to_tool("show recent transfers in the last 30 days")
+        self.assertEqual("query_recent_transfers", tool)
+        self.assertEqual(30, args.get("days"))
+        self.assertNotIn("district_name", args)
+
     def test_transfer_query_with_bare_place_should_capture_district(self) -> None:
-        # Known gap: bare place names in transfer queries (without the word "district")
-        # are not always captured as district_name by route_query_to_tool.
         self.assert_route(
             "show recent transfers in guntur for 15 days",
             "query_recent_transfers",
