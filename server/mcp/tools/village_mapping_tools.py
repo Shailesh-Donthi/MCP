@@ -4,6 +4,7 @@ Village Mapping Tools for MCP
 Tools for querying village coverage and identifying gaps.
 """
 
+import re
 from typing import Any, Dict, List, Optional
 from bson import ObjectId
 
@@ -75,7 +76,7 @@ class FindMissingVillageMappingsTool(BaseTool):
         if not district_id and district_name:
             district = await self.db[Collections.DISTRICT].find_one(
                 {
-                    "name": {"$regex": f"^{district_name}$", "$options": "i"},
+                    "name": {"$regex": f"^{re.escape(district_name)}$", "$options": "i"},
                     "isDelete": False,
                 }
             )
@@ -406,15 +407,13 @@ class GetVillageCoverageTool(BaseTool):
                 if best:
                     unit = await self.db[Collections.UNIT].find_one(
                         {
-                            "name": {"$regex": f"^{__import__('re').escape(best)}$", "$options": "i"},
+                            "name": {"$regex": f"^{re.escape(best)}$", "$options": "i"},
                             "isDelete": False,
                         }
                     )
                     if unit:
                         unit_id = str(unit["_id"])
-                if unit_id:
-                    pass
-                else:
+                if not unit_id:
                     return self.format_error_response(
                         "NOT_FOUND",
                         f"Unit not found: {unit_name}",
@@ -425,7 +424,7 @@ class GetVillageCoverageTool(BaseTool):
             district_name = normalize_common_entity_aliases(district_name)
             district = await self.db[Collections.DISTRICT].find_one(
                 {
-                    "name": {"$regex": f"^{district_name}$", "$options": "i"},
+                    "name": {"$regex": f"^{re.escape(district_name)}$", "$options": "i"},
                     "isDelete": False,
                 }
             )
@@ -437,7 +436,7 @@ class GetVillageCoverageTool(BaseTool):
                 if best:
                     district = await self.db[Collections.DISTRICT].find_one(
                         {
-                            "name": {"$regex": f"^{__import__('re').escape(best)}$", "$options": "i"},
+                            "name": {"$regex": f"^{re.escape(best)}$", "$options": "i"},
                             "isDelete": False,
                         }
                     )

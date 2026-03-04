@@ -1,5 +1,8 @@
 (function () {
-    const defaultApiUrl = `${window.location.protocol}//${window.location.hostname}:8090`;
+    const isLocalFile = window.location.protocol === 'file:';
+    const defaultApiUrl = isLocalFile
+        ? 'http://127.0.0.1:8090'
+        : `${window.location.protocol}//${window.location.hostname}:8090`;
     const config = {
         apiUrl: defaultApiUrl,
     };

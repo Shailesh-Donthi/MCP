@@ -211,7 +211,7 @@ class QueryRecentTransfersTool(BaseTool):
                 r["changedAt"] = r["changedAt"].isoformat()
 
         # Get total count
-        count_pipeline = pipeline[:-3]  # Remove skip, limit, project
+        count_pipeline = pipeline[:-3]  # Remove sort, skip, and limit
         count_pipeline.append({"$count": "total"})
         count_result = await self.db[Collections.UNIT].aggregate(
             count_pipeline
@@ -245,7 +245,7 @@ class QueryRecentTransfersTool(BaseTool):
         """Resolve a name to an ID"""
         doc = await self.db[collection].find_one(
             {
-                "name": {"$regex": f"^{name}$", "$options": "i"},
+                "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
                 "isDelete": False,
             }
         )

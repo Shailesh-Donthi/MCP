@@ -239,7 +239,7 @@ class CountVacanciesByUnitRankTool(BaseTool):
             })
 
         # Get total unit count
-        count_pipeline = pipeline[:-3]  # Remove skip, limit, and project
+        count_pipeline = pipeline[:-3]  # Remove sort, skip, and limit
         count_pipeline.append({"$count": "total"})
         count_result = await self.db[Collections.UNIT].aggregate(
             count_pipeline
@@ -321,7 +321,7 @@ class CountVacanciesByUnitRankTool(BaseTool):
         """Resolve a name to an ID"""
         doc = await self.db[collection].find_one(
             {
-                "name": {"$regex": f"^{name}$", "$options": "i"},
+                "name": {"$regex": f"^{re.escape(name)}$", "$options": "i"},
                 "isDelete": False,
             }
         )

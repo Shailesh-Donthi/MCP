@@ -2,7 +2,7 @@
     "include": [
         "server"
     ],
-    "pythonPath": "server",
+    "extraPaths": ["server"],
     "venvPath": ".",
     "venv": ".venv",
     "pythonVersion": "3.11",

@@ -185,8 +185,8 @@ async def call_openai_api(
                 if fallback_response.status_code == 200:
                     data = fallback_response.json()
                     return data["choices"][0]["message"]["content"]
-            logger.error(f"OpenAI API error: {response.status_code} - {response.text}")
+            logger.error("OpenAI API error: %s - %s", response.status_code, response.text)
             return None
     except Exception as exc:
-        logger.exception(f"OpenAI API call failed: {exc}")
+        logger.exception("OpenAI API call failed: %s", exc)
         return None
