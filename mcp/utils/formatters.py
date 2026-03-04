@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 from bson import ObjectId
 import re
-import math
 
 from mcp.core.error_catalog import build_error_payload, normalize_error_code
 
@@ -325,17 +324,9 @@ def _format_empty_result(tool_name: str, arguments: Dict[str, Any], metadata: Di
 
     elif tool_name == "query_personnel_by_rank":
         rank = arguments.get("rank_name", "the specified rank")
-        relation = str(arguments.get("rank_relation") or "exact").strip().lower()
-        relation_prefix = {
-            "above": "above",
-            "below": "below",
-            "at_or_above": "at or above",
-            "at_or_below": "at or below",
-        }.get(relation)
-        rank_phrase = f"{relation_prefix} {rank} rank" if relation_prefix else rank
         if district:
-            return f"No personnel found {rank_phrase} in {district} district."
-        return f"No personnel found with rank filter: {rank_phrase}."
+            return f"No {rank} personnel found in {district} district."
+        return f"No personnel found with rank {rank}."
 
     elif tool_name == "get_unit_hierarchy":
         if district:
@@ -391,8 +382,6 @@ def _format_empty_result(tool_name: str, arguments: Dict[str, Any], metadata: Di
         if name:
             return f"I couldn't find anyone named '{name}' in the database."
         return "No responsible user information available."
-    elif tool_name == "query_linked_master_data":
-        return "No master-data records matched your query."
 
     # Default message
     return "No results found for your query. Please try with different criteria."
@@ -585,88 +574,10 @@ def _get_tool_response_handlers(
         "count_vacancies_by_unit_rank": lambda: _format_vacancy_response(data, arguments),
         "query_recent_transfers": lambda: _format_transfer_response(data, arguments),
         "get_unit_command_history": lambda: _format_unit_command_history_response(data, arguments, query_lower, metadata),
-        "get_personnel_distribution": lambda: _format_distribution_response(query_lower, data, arguments),
+        "get_personnel_distribution": lambda: _format_distribution_response(data, arguments),
         "get_village_coverage": lambda: _format_village_coverage_response(data, arguments),
         "find_missing_village_mappings": lambda: _format_missing_village_response(data, arguments),
-        "query_linked_master_data": lambda: _format_linked_master_data_response(
-            data,
-            arguments,
-            pagination or {},
-            metadata,
-        ),
     }
-
-
-def _format_linked_master_data_response(
-    data: Any,
-    arguments: Dict[str, Any],
-    pagination: Dict[str, Any],
-    metadata: Dict[str, Any],
-) -> str:
-    mode = str(arguments.get("mode") or "").strip().lower()
-
-    # Discovery mode response
-    if mode == "discover" and isinstance(data, dict):
-        requested = data.get("requested_collections", [])
-        relations = data.get("relations", [])
-        if isinstance(requested, list):
-            existing = [c for c in requested if isinstance(c, dict) and c.get("exists")]
-            missing = [c for c in requested if isinstance(c, dict) and not c.get("exists")]
-            active_relations = [r for r in relations if isinstance(r, dict) and r.get("active")]
-            response = (
-                f"Master-data discovery completed.\n\n"
-                f"- Requested collections: {len(requested)}\n"
-                f"- Available in DB: {len(existing)}\n"
-                f"- Missing in DB: {len(missing)}\n"
-                f"- Active relationships: {len(active_relations)}"
-            )
-            if missing:
-                missing_names = [str(item.get("canonical")) for item in missing if item.get("canonical")]
-                if missing_names:
-                    response += f"\n\nMissing collections: {', '.join(missing_names)}"
-            return response
-        return "Master-data discovery completed."
-
-    # Query mode response
-    if isinstance(data, list):
-        total = pagination.get("total", len(data))
-        collection_info = (metadata or {}).get("collection_resolution", {})
-        canonical = (
-            collection_info.get("canonical")
-            or arguments.get("collection")
-            or "requested collection"
-        )
-        response = (
-            f"Found {total} record(s) in `{canonical}`."
-        )
-        if data:
-            preview_lines: List[str] = []
-            for idx, row in enumerate(data[:5], start=1):
-                if not isinstance(row, dict):
-                    continue
-                label = (
-                    row.get("name")
-                    or row.get("flowName")
-                    or row.get("errorCode")
-                    or row.get("key")
-                    or row.get("userId")
-                    or row.get("_id")
-                    or "record"
-                )
-                preview_lines.append(f"{idx}. {label}")
-            if preview_lines:
-                response += "\n\nSample results:\n" + "\n".join(preview_lines)
-        forward = (metadata or {}).get("forward_links", [])
-        reverse = (metadata or {}).get("reverse_links", [])
-        if isinstance(forward, list) or isinstance(reverse, list):
-            response += (
-                f"\n\nLink expansion: "
-                f"{len(forward) if isinstance(forward, list) else 0} forward relation(s), "
-                f"{len(reverse) if isinstance(reverse, list) else 0} reverse relation(s)."
-            )
-        return response
-
-    return "Linked master-data query completed."
 
 
 def _format_hierarchy_response(data: Any, arguments: Dict[str, Any]) -> str:
@@ -770,42 +681,11 @@ def _format_personnel_response(
     )
     exact_match_truncated = bool(metadata.get("exact_name_match_truncated"))
 
-    def _collect_assignments(person: Dict[str, Any]) -> List[Dict[str, str]]:
-        rows: List[Dict[str, str]] = []
-        raw_assignments = person.get("assignments")
-        source_rows = raw_assignments if isinstance(raw_assignments, list) and raw_assignments else person.get("units", [])
-        if not isinstance(source_rows, list):
-            return rows
-        for row in source_rows:
-            if not isinstance(row, dict):
-                continue
-            rows.append(
-                {
-                    "unitName": str(row.get("unitName") or "").strip(),
-                    "districtName": str(row.get("districtName") or "").strip(),
-                    "designationName": str(row.get("designationName") or "").strip(),
-                }
-            )
-        return rows
-
-    def _assignment_text(assignment: Dict[str, str]) -> str:
-        text = assignment.get("unitName") or "Not assigned"
-        district = assignment.get("districtName") or ""
-        designation = assignment.get("designationName") or ""
-        if district:
-            text += f" ({district})"
-        if designation:
-            text += f" - {designation}"
-        return text
-
     def person_summary_lines(person: Dict[str, Any], index: int) -> List[str]:
         person_name = person.get("name", "Unknown")
         user_id = person.get("userId", "N/A")
         rank_name = (person.get("rank") or {}).get("name", "Unknown")
-        assignments = _collect_assignments(person)
         unit_name = person.get("primary_unit", "Not assigned")
-        if assignments and (not unit_name or unit_name == "Not assigned"):
-            unit_name = _assignment_text(assignments[0])
         mobile_val = person.get("mobile", "N/A")
         email_val = person.get("email", "N/A")
         return [
@@ -877,13 +757,6 @@ def _format_personnel_response(
         total = 1
 
     name = person.get("name", "Unknown")
-    asks_identity_profile = bool(
-        re.search(
-            r"\b(who\s+is|who's|details?|profile|full\s+profile|full\s+details|info(?:rmation)?\s+(?:about|on))\b",
-            query,
-            re.IGNORECASE,
-        )
-    ) or bool(arguments.get("user_id"))
 
     # Detect what information was asked for
     responses = []
@@ -917,10 +790,7 @@ def _format_personnel_response(
 
     # Unit query
     elif any(word in query for word in ["unit", "station", "belongs", "posted", "work", "assigned"]):
-        assignments = _collect_assignments(person)
         primary_unit = person.get("primary_unit", "Not assigned")
-        if assignments and (not primary_unit or primary_unit == "Not assigned"):
-            primary_unit = _assignment_text(assignments[0])
         responses.append(f"{name} belongs to {primary_unit}")
 
     # Rank/Designation query
@@ -962,7 +832,7 @@ def _format_personnel_response(
             responses.append(f"Father's name is not available for {name}")
 
     # User ID / Badge query
-    elif any(word in query for word in ["user id", "userid", "badge", "id number"]) and not asks_identity_profile:
+    elif any(word in query for word in ["user id", "userid", "badge", "id number"]):
         user_id = person.get("userId")
         badge = person.get("badgeNo")
         if user_id:
@@ -974,62 +844,17 @@ def _format_personnel_response(
 
     # General info / find person query
     else:
-        # Full person profile for generic identity prompts like "who is <name>".
+        # Provide a summary
         rank = person.get("rank", {}).get("name", "Unknown rank")
-        rank_short = person.get("rank", {}).get("shortCode", "")
-        user_id = person.get("userId") or "N/A"
-        badge_no = person.get("badgeNo") or "N/A"
-        department = person.get("department") or "N/A"
-        gender = person.get("gender") or "N/A"
-        dob = person.get("dateOfBirth") or "N/A"
-        if isinstance(dob, str) and "T" in dob:
-            dob = dob.split("T")[0]
+        unit = person.get("primary_unit", "Not assigned")
         mobile = person.get("mobile", "N/A")
         email = person.get("email", "N/A")
-        address = person.get("address") or "N/A"
-        blood_group = person.get("bloodGroup") or "N/A"
-        father_name = person.get("fatherName") or "N/A"
-        doj = person.get("dateOfJoining") or "N/A"
-        if isinstance(doj, str) and "T" in doj:
-            doj = doj.split("T")[0]
-        dor = person.get("dateOfRetirement") or "N/A"
-        if isinstance(dor, str) and "T" in dor:
-            dor = dor.split("T")[0]
-        status = "Active" if bool(person.get("isActive", True)) else "Inactive"
 
-        assignments = _collect_assignments(person)
-        primary_unit = person.get("primary_unit", "Not assigned")
-        if assignments and (not primary_unit or primary_unit == "Not assigned"):
-            primary_unit = _assignment_text(assignments[0])
-
-        responses.append(f"Here is the full profile for {name}:")
-        responses.append(f"  - User ID: {user_id}")
-        responses.append(f"  - Badge No: {badge_no}")
-        if rank_short:
-            responses.append(f"  - Rank: {rank} ({rank_short})")
-        else:
-            responses.append(f"  - Rank: {rank}")
-        responses.append(f"  - Department: {department}")
-        responses.append(f"  - Current status: {status}")
-        responses.append(f"  - Unit/Station: {primary_unit}")
-        if assignments and assignments[0].get("districtName"):
-            responses.append(f"  - District: {assignments[0].get('districtName')}")
-        elif person.get("districtName"):
-            responses.append(f"  - District: {person.get('districtName')}")
-        responses.append(f"  - Gender: {gender}")
-        responses.append(f"  - Date of birth: {dob}")
+        responses.append(f"Here is the information for {name}:")
+        responses.append(f"  - Rank: {rank}")
+        responses.append(f"  - Unit: {unit}")
         responses.append(f"  - Mobile: {mobile}")
         responses.append(f"  - Email: {email}")
-        responses.append(f"  - Address: {address}")
-        responses.append(f"  - Blood group: {blood_group}")
-        responses.append(f"  - Father name: {father_name}")
-        responses.append(f"  - Date of joining: {doj}")
-        responses.append(f"  - Date of retirement: {dor}")
-
-        if assignments:
-            responses.append("  - Active assignments:")
-            for idx, assignment in enumerate(assignments, 1):
-                responses.append(f"    {idx}. {_assignment_text(assignment)}")
 
     # Add note if multiple matches
     if total > 1:
@@ -1185,18 +1010,6 @@ def _format_rank_personnel_response(
     """Format natural language response for personnel by rank"""
 
     rank_name = arguments.get("rank_name", "the specified rank")
-    rank_relation = str(arguments.get("rank_relation") or "exact").strip().lower()
-    relation_prefix_map = {
-        "above": "Above",
-        "below": "Below",
-        "at_or_above": "At or Above",
-        "at_or_below": "At or Below",
-    }
-    rank_label = (
-        f"{relation_prefix_map.get(rank_relation, 'Exact')} {rank_name} Rank"
-        if rank_relation in relation_prefix_map
-        else rank_name
-    )
     district = arguments.get("district_name", "")
     asks_detailed_view = any(
         token in query for token in [
@@ -1209,61 +1022,11 @@ def _format_rank_personnel_response(
     if isinstance(data, list):
         if len(data) == 0:
             if district:
-                return f"No {rank_label} personnel found in {district} district."
-            return f"No {rank_label} personnel found."
-
-        asks_earliest_dob = bool(
-            re.search(r"\b(earliest|oldest)\b", query)
-            and re.search(r"\b(date\s+of\s+birth|dob|birthday|birth)\b", query)
-        )
-        if asks_earliest_dob:
-            candidates: List[Dict[str, Any]] = []
-
-            def _dob_key(raw_value: Any) -> Optional[datetime]:
-                if isinstance(raw_value, datetime):
-                    return raw_value
-                if not raw_value:
-                    return None
-                text = str(raw_value).strip()
-                if "T" in text:
-                    text = text.split("T", 1)[0]
-                for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y"):
-                    try:
-                        return datetime.strptime(text, fmt)
-                    except Exception:
-                        continue
-                return None
-
-            for person in data:
-                if not isinstance(person, dict):
-                    continue
-                dob_sort = _dob_key(person.get("dateOfBirth"))
-                if dob_sort is None:
-                    continue
-                candidates.append({"person": person, "dob_sort": dob_sort})
-
-            if not candidates:
-                return f"Date of birth is not available for {rank_name} personnel in the current result set."
-
-            candidates.sort(key=lambda item: item["dob_sort"])
-            oldest_person = candidates[0]["person"]
-            dob_value = oldest_person.get("dateOfBirth")
-            dob_text = str(dob_value).split("T", 1)[0] if dob_value else str(candidates[0]["dob_sort"].date())
-            person_name = oldest_person.get("name", "Unknown")
-            person_district = oldest_person.get("districtName")
-            person_mobile = oldest_person.get("mobile")
-
-            parts = [f"{person_name} has the earliest recorded date of birth among {rank_name} personnel: {dob_text}."]
-            if person_district:
-                parts.append(f"District: {person_district}.")
-            if person_mobile:
-                parts.append(f"Mobile: {person_mobile}.")
-            if len(candidates) < len(data):
-                parts.append("(Some records in this result did not include date of birth.)")
-            return " ".join(parts)
+                return f"No {rank_name} personnel found in {district} district."
+            return f"No {rank_name} personnel found."
 
         location = f" in {district} district" if district else ""
-        response = f"{rank_label} Personnel{location}:\n\n"
+        response = f"{rank_name} Personnel{location}:\n\n"
 
         # Show the complete current page returned by backend pagination.
         limit = len(data)
@@ -1273,17 +1036,13 @@ def _format_rank_personnel_response(
             badge = person.get("badgeNo", "N/A")
             mobile = person.get("mobile", "N/A")
             email = person.get("email", "N/A")
-            person_rank = person.get("rankName") or rank_name
+            rank_label = person.get("rankName") or rank_name
 
             if asks_detailed_view:
                 response += f"  {i}. {name}\n"
                 response += f"     - User ID: {user_id}\n"
                 response += f"     - Badge No: {badge}\n"
-                response += f"     - Rank: {person_rank}\n"
-                if person.get("districtName"):
-                    response += f"     - District: {person.get('districtName')}\n"
-                if person.get("unitName"):
-                    response += f"     - Unit: {person.get('unitName')}\n"
+                response += f"     - Rank: {rank_label}\n"
                 response += f"     - Mobile: {mobile}\n"
                 response += f"     - Email: {email}\n"
             else:
@@ -1298,7 +1057,7 @@ def _format_rank_personnel_response(
             if isinstance(pagination, dict) and pagination.get("total") is not None
             else len(data)
         )
-        response += f"\nTotal: {total_matches} {rank_label} personnel"
+        response += f"\nTotal: {total_matches} {rank_name} personnel"
         if isinstance(pagination, dict):
             page = int(pagination.get("page") or 1)
             page_size = int(pagination.get("page_size") or max(1, len(data)))
@@ -1509,153 +1268,15 @@ def _format_unit_command_history_response(
     return "\n".join(response)
 
 
-def _format_distribution_response(query: str, data: Any, arguments: Dict[str, Any]) -> str:
+def _format_distribution_response(data: Any, arguments: Dict[str, Any]) -> str:
     """Format natural language response for personnel distribution"""
 
-    query_lower = (query or "").lower()
     district_name = arguments.get("district_name", "")
     unit_name = arguments.get("unit_name", "")
 
     if isinstance(data, dict):
         distribution = data.get("distribution", [])
         total = data.get("total", 0)
-        comparison = data.get("comparison", []) if isinstance(data.get("comparison"), list) else []
-
-        def _norm_rank(value: Any) -> str:
-            return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
-
-        def _collect_requested_ranks() -> List[str]:
-            rank_patterns = [
-                (r"\bpolice\s+constables?\b", "Police Constable"),
-                (r"(?<!police\s)\bconstables?\b", "Constable"),
-                (r"\bsub[-\s]?inspectors?\b|\bsi\b|\bsis\b", "Sub Inspector"),
-                (r"\bcircle\s+inspectors?\b|\bci\b", "Circle Inspector"),
-                (r"\bassistant\s+sub[-\s]?inspectors?\b|\basi\b", "Assistant SubInspector"),
-                (r"\bhead\s+constables?\b|\bhc\b", "Head Constable"),
-                (r"\bdeputy\s+superintendent\s+of\s+police\b|\bdsp\b|\bdysp\b", "Deputy Superintendent of Police"),
-                (r"\bsuperintendent\s+of\s+police\b|\bsp\b", "Superintendent of Police"),
-            ]
-            hits: List[tuple[int, str]] = []
-            for pattern, label in rank_patterns:
-                for match in re.finditer(pattern, query_lower, re.IGNORECASE):
-                    hits.append((match.start(), label))
-            hits.sort(key=lambda item: item[0])
-            ordered: List[str] = []
-            for _, label in hits:
-                if label not in ordered:
-                    ordered.append(label)
-            return ordered
-
-        if comparison:
-            lines = ["District Comparison:", ""]
-            if "senior officer" in query_lower:
-                def _is_senior(rank_label: str) -> bool:
-                    name = rank_label.lower()
-                    if any(term in name for term in ["constable", "assistant sub", "junior"]):
-                        return False
-                    if re.search(r"\bsub\s+inspector\b", name):
-                        return False
-                    return bool(
-                        re.search(
-                            r"\b(inspector|superintendent|commissioner|dysp|dsp|sp|igp|ips|director general)\b",
-                            name,
-                        )
-                    )
-
-                scored: List[Dict[str, Any]] = []
-                for district_row in comparison:
-                    district_label = district_row.get("districtName", "Unknown")
-                    district_distribution = district_row.get("distribution", []) if isinstance(district_row, dict) else []
-                    district_total = int(district_row.get("total") or 0) if isinstance(district_row, dict) else 0
-                    senior_count = 0
-                    for row in district_distribution:
-                        if not isinstance(row, dict):
-                            continue
-                        rank_label = row.get("rankName") or "Unknown"
-                        if _is_senior(rank_label):
-                            senior_count += int(row.get("count") or 0)
-                    scored.append(
-                        {
-                            "district": district_label,
-                            "senior_count": senior_count,
-                            "total": district_total,
-                        }
-                    )
-                scored.sort(key=lambda row: row["senior_count"], reverse=True)
-                for row in scored:
-                    lines.append(
-                        f"  - {row['district']}: {row['senior_count']:,} senior officers (total personnel: {row['total']:,})"
-                    )
-                if len(scored) >= 2:
-                    if scored[0]["senior_count"] > scored[1]["senior_count"]:
-                        lines.append("")
-                        lines.append(f"{scored[0]['district']} has more senior officers.")
-                    else:
-                        lines.append("")
-                        lines.append("The compared districts have the same number of senior officers.")
-                return "\n".join(lines).strip()
-
-            for district_row in comparison:
-                district_label = district_row.get("districtName", "Unknown")
-                district_total = int(district_row.get("total") or 0)
-                district_distribution = district_row.get("distribution", []) if isinstance(district_row, dict) else []
-                top_ranks = ", ".join(
-                    f"{item.get('rankName', 'Unknown')}: {int(item.get('count') or 0):,}"
-                    for item in district_distribution[:3]
-                    if isinstance(item, dict)
-                )
-                lines.append(f"  - {district_label}: {district_total:,} personnel")
-                if top_ranks:
-                    lines.append(f"    Top ranks: {top_ranks}")
-            return "\n".join(lines).strip()
-
-        if "ratio" in query_lower and isinstance(distribution, list):
-            requested_ranks = _collect_requested_ranks()
-            if requested_ranks:
-                rank_counts: Dict[str, int] = {}
-                for row in distribution:
-                    if not isinstance(row, dict):
-                        continue
-                    rank_label = row.get("rankName") or ""
-                    rank_counts[_norm_rank(rank_label)] = int(row.get("count") or 0)
-
-                ordered_counts: List[int] = []
-                missing: List[str] = []
-                for requested in requested_ranks:
-                    requested_key = _norm_rank(requested)
-                    exact = rank_counts.get(requested_key)
-                    if exact is None:
-                        token_match = 0
-                        for k, v in rank_counts.items():
-                            if requested_key and requested_key in k:
-                                token_match = v
-                                break
-                        exact = token_match if token_match else None
-                    if exact is None:
-                        missing.append(requested)
-                        ordered_counts.append(0)
-                    else:
-                        ordered_counts.append(exact)
-
-                non_zero = [count for count in ordered_counts if count > 0]
-                if non_zero:
-                    divisor = non_zero[0]
-                    for value in non_zero[1:]:
-                        divisor = math.gcd(divisor, value)
-                    simplified = [int(value / divisor) if divisor > 0 else value for value in ordered_counts]
-
-                    ratio_label = " : ".join(str(v) for v in simplified)
-                    details = ", ".join(
-                        f"{requested_ranks[idx]}={ordered_counts[idx]:,}"
-                        for idx in range(len(requested_ranks))
-                    )
-                    response = (
-                        f"Ratio ({' : '.join(requested_ranks)}): {ratio_label}\n"
-                        f"Counts used: {details}"
-                    )
-                    if missing:
-                        response += f"\nMissing rank categories: {', '.join(missing)}"
-                    return response
 
         # Build header based on filters
         if district_name:

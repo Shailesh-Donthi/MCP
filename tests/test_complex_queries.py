@@ -243,6 +243,77 @@ class PersonnelFormatterTests(unittest.TestCase):
         self.assertIn("Guntur", response)
         self.assertIn("Active assignments", response)
 
+    def test_user_id_identity_query_returns_full_profile(self):
+        result = {
+            "success": True,
+            "data": [
+                {
+                    "name": "Vakul Jindal",
+                    "userId": "14402876",
+                    "badgeNo": None,
+                    "rank": {"name": "Superintendent of Police", "shortCode": "SP"},
+                    "department": "Law & Order Wing",
+                    "isActive": True,
+                    "gender": "Male",
+                    "dateOfBirth": "1991-09-08T00:00:00",
+                    "mobile": "+918688831300",
+                    "email": "vakul.jindal@ips.gov.in",
+                    "primary_unit": "Guntur DPO (Guntur)",
+                    "assignments": [
+                        {
+                            "unitId": "u1",
+                            "unitName": "Guntur DPO",
+                            "districtName": "Guntur",
+                            "designationName": "SP",
+                        }
+                    ],
+                }
+            ],
+            "pagination": {"page": 1, "page_size": 1, "total": 1, "total_pages": 1},
+            "metadata": {},
+        }
+
+        response = generate_natural_language_response(
+            "who is user id 14402876",
+            "search_personnel",
+            {"user_id": "14402876"},
+            result,
+        )
+
+        self.assertIn("full profile", response.lower())
+        self.assertIn("User ID: 14402876", response)
+        self.assertIn("Unit/Station:", response)
+
+    def test_user_id_attribute_query_still_returns_short_answer(self):
+        result = {
+            "success": True,
+            "data": [
+                {
+                    "name": "Vakul Jindal",
+                    "userId": "14402876",
+                    "badgeNo": None,
+                    "rank": {"name": "Superintendent of Police", "shortCode": "SP"},
+                    "department": "Law & Order Wing",
+                    "isActive": True,
+                    "mobile": "+918688831300",
+                    "email": "vakul.jindal@ips.gov.in",
+                    "primary_unit": "Guntur DPO (Guntur)",
+                    "assignments": [],
+                }
+            ],
+            "pagination": {"page": 1, "page_size": 1, "total": 1, "total_pages": 1},
+            "metadata": {},
+        }
+
+        response = generate_natural_language_response(
+            "what is the user id of vakul jindal",
+            "search_personnel",
+            {"name": "Vakul Jindal"},
+            result,
+        )
+
+        self.assertIn("The User ID of Vakul Jindal is 14402876", response)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
