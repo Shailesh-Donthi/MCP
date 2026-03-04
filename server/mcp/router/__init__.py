@@ -6,12 +6,8 @@ from mcp.router.prompts import (
     RESPONSE_FORMATTER_PROMPT,
 )
 from mcp.router.llm_client import call_openai_api
-from mcp.router.routing_rules import (
-    repair_route,
-    needs_clarification,
-    is_followup_district_query,
-    format_followup_district_response,
-)
+from mcp.router.routing_rules import repair_route, needs_clarification
+from mcp.router.extractors import is_followup_district_query, format_followup_district_response
 
 __all__ = [
     "ROUTER_SYSTEM_PROMPT",
