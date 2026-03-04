@@ -54,6 +54,10 @@ Available tools:
     Args: unit_name, district_name
 16) query_linked_master_data
     Args: mode, collection, filters, search_text, include_related, include_reverse, include_integrity
+17) dynamic_query
+    Use ONLY when no tool above can answer the question. Requires a plain-English description.
+    Args: intent (required — describe what data to find)
+    IMPORTANT: Only pick this tool if confidence would be below 0.4. Never use for queries tools 1-16 can handle.
 
 Return exactly one JSON object:
 {
@@ -69,6 +73,7 @@ Rules:
 - If unsure, choose the closest tool with partial arguments.
 - Never invent unsupported tools.
 - Confidence between 0 and 1.
+- Only use dynamic_query if no tool 1-16 fits AND confidence is below 0.4.
 """
 
 RESPONSE_FORMATTER_PROMPT_V2 = """You are a concise assistant. Use only the provided tool result.
@@ -232,6 +237,7 @@ def _default_available_tools() -> Set[str]:
             "find_missing_village_mappings",
             "get_village_coverage",
             "query_linked_master_data",
+            "dynamic_query",
         }
 
 
@@ -483,9 +489,9 @@ class IntelligentQueryHandler:
             try:
                 names = self.tool_handler.get_tool_names()
                 if isinstance(names, list):
-                    return set(names)
+                    return set(names) | {"dynamic_query"}
                 if isinstance(names, set):
-                    return names
+                    return names | {"dynamic_query"}
             except Exception:
                 pass
         return _default_available_tools()
@@ -810,6 +816,85 @@ class IntelligentQueryHandler:
         if tool_name == "__help__":
             reason = str(arguments.get("reason") or "").strip()
             response_text = f"{reason}\n\n{_capability_help_response_text()}".strip() if reason else _capability_help_response_text()
+            output_payload = build_output_payload(
+                query=clean_query,
+                response_text=response_text,
+                routed_to=None,
+                arguments={},
+                result={},
+                requested_format=output_format,
+                allow_download=allow_download,
+            )
+            history.append({"role": "user", "content": clean_query})
+            history.append({"role": "assistant", "content": response_text})
+            return {
+                "success": True,
+                "query": clean_query,
+                "response": response_text,
+                "routed_to": None,
+                "arguments": {},
+                "extracted_arguments": {},
+                "data": {},
+                "route_source": route_source,
+                "route_confidence": confidence,
+                "understood_query": understood_query,
+                "understood_as": "capability_help",
+                "output": output_payload,
+                "history_size": len(history),
+            }
+
+        if tool_name == "dynamic_query":
+            if confidence >= 0.4:
+                # Safety guard: router is overusing dynamic_query with too much confidence.
+                # Fall back to capability help rather than running an unconstrained DB query.
+                reason = "I couldn't find a specific tool for your query."
+                response_text = f"{reason}\n\n{_capability_help_response_text()}".strip()
+            else:
+                from mcp.core.database import get_database
+                from mcp.orchestration.dynamic_query_orchestrator import DynamicQueryOrchestrator
+                from mcp.tools.dynamic_query_tool import DynamicQueryExecutor
+
+                db = get_database()
+                orchestrator = DynamicQueryOrchestrator(DynamicQueryExecutor(db))
+                dq_result = await orchestrator.run(
+                    intent=str(arguments.get("intent") or clean_query),
+                    context=context,
+                    conversation_context=llm_context,
+                )
+                response_text = str(
+                    dq_result.get("response")
+                    or (dq_result.get("data") or {}).get("answer")
+                    or "I couldn't find that information in the database."
+                )
+                output_payload = build_output_payload(
+                    query=clean_query,
+                    response_text=response_text,
+                    routed_to="dynamic_query",
+                    arguments=arguments,
+                    result=dq_result,
+                    requested_format=output_format,
+                    allow_download=allow_download,
+                )
+                history.append({"role": "user", "content": clean_query})
+                history.append({"role": "assistant", "content": response_text})
+                state["last_tool"] = "dynamic_query"
+                state["last_arguments"] = dict(arguments)
+                state["last_result"] = dq_result
+                return {
+                    "success": bool(dq_result.get("success", True)),
+                    "query": clean_query,
+                    "response": response_text,
+                    "routed_to": "dynamic_query",
+                    "arguments": arguments,
+                    "extracted_arguments": arguments,
+                    "data": dq_result,
+                    "route_source": route_source,
+                    "route_confidence": confidence,
+                    "understood_query": understood_query,
+                    "understood_as": understood_query,
+                    "output": output_payload,
+                    "history_size": len(history),
+                }
             output_payload = build_output_payload(
                 query=clean_query,
                 response_text=response_text,
