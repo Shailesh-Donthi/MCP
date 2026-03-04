@@ -69,10 +69,13 @@ class RouteQueryToToolTests(unittest.TestCase):
             {"days": 15},
         )
 
-    @unittest.expectedFailure
+    def test_transfer_query_with_time_window_only_does_not_extract_fake_district(self) -> None:
+        tool, args = route_query_to_tool("show recent transfers in the last 30 days")
+        self.assertEqual("query_recent_transfers", tool)
+        self.assertEqual(30, args.get("days"))
+        self.assertNotIn("district_name", args)
+
     def test_transfer_query_with_bare_place_should_capture_district(self) -> None:
-        # Known gap: bare place names in transfer queries (without the word "district")
-        # are not always captured as district_name by route_query_to_tool.
         self.assert_route(
             "show recent transfers in guntur for 15 days",
             "query_recent_transfers",
@@ -102,6 +105,18 @@ class RouteQueryToToolTests(unittest.TestCase):
             "list_units_in_district",
             {"district_name": "Guntur"},
         )
+
+    def test_range_count_in_ap_routes_to_search_unit(self) -> None:
+        tool, args = route_query_to_tool("how many ranges in AP")
+        self.assertEqual("search_unit", tool)
+        self.assertEqual("Range", args.get("unit_type_name"))
+        self.assertNotIn("district_name", args)
+
+    def test_units_in_guntur_range_routes_to_range_filtered_district_units(self) -> None:
+        tool, args = route_query_to_tool("Show me units in guntur range")
+        self.assertEqual("list_units_in_district", tool)
+        self.assertEqual("Guntur", args.get("district_name"))
+        self.assertEqual("Range", args.get("unit_type_name"))
 
     def test_distribution_query(self) -> None:
         self.assert_route(
@@ -234,6 +249,65 @@ class RepairRouteTests(unittest.TestCase):
         )
         self.assertEqual("get_unit_command_history", tool)
         self.assertEqual("kuppam sdpo", str(args.get("unit_name", "")).lower())
+
+    def test_sho_query_with_time_window_keeps_clean_unit_name(self) -> None:
+        tool, args = repair_route(
+            "who was the sho of guntur ps in last 15 days",
+            "get_unit_command_history",
+            {"unit_name": "guntur"},
+        )
+        self.assertEqual("get_unit_command_history", tool)
+        self.assertEqual("guntur ps", str(args.get("unit_name", "")).lower())
+
+    def test_where_is_prefers_search_unit_even_if_llm_suggests_designation(self) -> None:
+        tool, args = repair_route(
+            "where is Addl DGP LO",
+            "search_personnel",
+            {"designation_name": "Addl DGP LO"},
+        )
+        self.assertEqual("search_unit", tool)
+        self.assertEqual("Addl DGP LO", args.get("name"))
+
+    def test_vacancy_tool_alias_is_normalized(self) -> None:
+        tool, args = repair_route(
+            "show vacancies in annamayya district",
+            "count_vacancies_by_unit",
+            {"district_name": "Annamayya"},
+        )
+        self.assertEqual("count_vacancies_by_unit_rank", tool)
+        self.assertEqual("Annamayya", args.get("district_name"))
+
+    def test_range_count_query_repairs_llm_distribution_route(self) -> None:
+        tool, args = repair_route(
+            "how many ranges in AP",
+            "get_personnel_distribution",
+            {"group_by": "unit_type"},
+        )
+        self.assertEqual("search_unit", tool)
+        self.assertEqual("Range", args.get("unit_type_name"))
+        self.assertNotIn("district_name", args)
+
+    def test_units_in_range_query_repairs_missing_range_filter(self) -> None:
+        tool, args = repair_route(
+            "Show me units in guntur range",
+            "list_units_in_district",
+            {"district_name": "Guntur"},
+        )
+        self.assertEqual("list_units_in_district", tool)
+        self.assertEqual("Guntur", args.get("district_name"))
+        self.assertEqual("Range", args.get("unit_type_name"))
+
+    def test_followup_si_attachment_with_apostrophe_preserves_context(self) -> None:
+        tool, args = repair_route(
+            "show for which unit these SI's are attached",
+            "query_personnel_by_rank",
+            {"rank_name": "Sub-Inspector"},
+            last_user_query=None,
+            last_assistant_response="Sub-Inspector Personnel in Guntur district:\n\n1. A Person",
+        )
+        self.assertEqual("query_personnel_by_rank", tool)
+        self.assertIn("sub", str(args.get("rank_name", "")).lower())
+        self.assertEqual("Guntur", args.get("district_name"))
 
     def test_designation_query_maps_to_search_personnel_designation(self) -> None:
         tool, args = repair_route(

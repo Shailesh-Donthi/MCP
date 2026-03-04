@@ -305,6 +305,7 @@ def _format_empty_result(tool_name: str, arguments: Dict[str, Any], metadata: Di
     district = arguments.get("district_name", "")
     unit = arguments.get("unit_name", "") or arguments.get("root_unit_name", "")
     name = arguments.get("name", "")
+    unit_type_name = str(arguments.get("unit_type_name") or "").strip()
 
     if tool_name == "search_personnel":
         if name:
@@ -312,6 +313,10 @@ def _format_empty_result(tool_name: str, arguments: Dict[str, Any], metadata: Di
         return "No personnel found matching your criteria."
 
     elif tool_name == "search_unit":
+        if unit_type_name:
+            if district:
+                return f"No {unit_type_name.lower()} units found in {district} district."
+            return f"No {unit_type_name.lower()} units found matching your criteria."
         if name or unit:
             return f"I couldn't find a unit named '{name or unit}'. Please check the name and try again."
         return "No units found matching your criteria."
@@ -346,6 +351,8 @@ def _format_empty_result(tool_name: str, arguments: Dict[str, Any], metadata: Di
 
     elif tool_name == "list_units_in_district":
         if district:
+            if unit_type_name:
+                return f"No {unit_type_name.lower()} units found in {district} district."
             return f"No units found in {district} district. Please verify the district name."
         return "No units found. Please specify a district name."
 
@@ -566,7 +573,7 @@ def _get_tool_response_handlers(
             pagination,
             metadata,
         ),
-        "search_unit": lambda: _format_unit_response(query_lower, data, arguments),
+        "search_unit": lambda: _format_unit_response(query_lower, data, arguments, pagination),
         "get_unit_hierarchy": lambda: _format_hierarchy_response(data, arguments),
         "list_units_in_district": lambda: _format_district_units_response(
             data,
@@ -1043,17 +1050,41 @@ def _format_personnel_response(
     return "\n".join(responses)
 
 
-def _format_unit_response(query: str, data: Any, arguments: Dict[str, Any]) -> str:
+def _format_unit_response(
+    query: str,
+    data: Any,
+    arguments: Dict[str, Any],
+    pagination: Optional[Dict[str, Any]] = None,
+) -> str:
     """Format natural language response for unit search"""
+
+    total = (
+        int(pagination.get("total"))
+        if isinstance(pagination, dict) and pagination.get("total") is not None
+        else (len(data) if isinstance(data, list) else 1)
+    )
+    asks_count = bool(
+        re.search(r"\b(how\s+many|count|total|number\s+of)\b", query)
+    )
+    requested_type = str(arguments.get("unit_type_name") or "").strip()
+    district_name = str(arguments.get("district_name") or "").strip()
+
+    if asks_count:
+        label = requested_type or "unit"
+        if district_name:
+            return f"There are {total} {label.lower()} unit(s) in {district_name} district."
+        if re.search(r"\b(ap|andhra\s+pradesh)\b", query):
+            return f"There are {total} {label.lower()} unit(s) across Andhra Pradesh."
+        return f"There are {total} {label.lower()} unit(s) in the accessible scope."
 
     if isinstance(data, list):
         if len(data) == 0:
+            if requested_type:
+                return f"No {requested_type.lower()} units matched the query."
             return f"I couldn't find any unit matching '{arguments.get('name', 'your search')}'."
         unit = data[0]
-        total = len(data)
     else:
         unit = data
-        total = 1
 
     name = unit.get("name", "Unknown")
     district = unit.get("district", {}).get("name", "Unknown")
@@ -1084,10 +1115,12 @@ def _format_district_units_response(
         district = (metadata.get("district_name") or "").strip()
     if not district:
         district = "the district"
+    unit_type_name = str(arguments.get("unit_type_name") or (metadata or {}).get("unit_type_name") or "").strip()
+    unit_label = f"{unit_type_name.lower()} " if unit_type_name else ""
 
     if isinstance(data, list):
         if len(data) == 0:
-            return f"No units found in {district} district."
+            return f"No {unit_label}units found in {district} district."
 
         total_units = (
             int(pagination.get("total"))
@@ -1107,7 +1140,7 @@ def _format_district_units_response(
         page_end = min(page * page_size, total_units) if total_units > 0 else 0
         shown_count = min(len(data), 20)
 
-        response = f"Here are the units in {district} district:\n\n"
+        response = f"Here are the {unit_label}units in {district} district:\n\n"
         for i, unit in enumerate(data[:20], 1):  # Limit to 20 for readability
             name = unit.get("name", "Unknown")
             unit_type = unit.get("unitType", "")
@@ -1205,6 +1238,9 @@ def _format_rank_personnel_response(
             "their details", "give all",
         ]
     )
+    asks_unit_attachment = bool(
+        re.search(r"\b(unit|attached|attachment|posted|belongs?|assigned)\b", query)
+    )
 
     if isinstance(data, list):
         if len(data) == 0:
@@ -1288,6 +1324,8 @@ def _format_rank_personnel_response(
                 response += f"     - Email: {email}\n"
             else:
                 unit = person.get("unitName") or person.get("primary_unit", "")
+                if asks_unit_attachment and not unit:
+                    unit = "Not assigned"
                 response += f"  {i}. {name}"
                 if unit:
                     response += f" - {unit}"
@@ -1390,6 +1428,29 @@ def _format_vacancy_response(data: Any, arguments: Dict[str, Any]) -> str:
                 response += "\nRank-wise personnel:\n"
                 for rank_info in sorted_ranks[:12]:
                     response += f"  - {rank_info['rankName']}: {rank_info['actualCount']}\n"
+
+            return response
+
+        # Shape C: fallback rank distribution when unit-level linkage is absent.
+        rank_distribution = data.get("rank_distribution", [])
+        if isinstance(rank_distribution, list) and rank_distribution:
+            total_personnel = summary.get("totalPersonnel")
+            if total_personnel is None:
+                total_personnel = sum(int(item.get("count") or 0) for item in rank_distribution if isinstance(item, dict))
+
+            response = "Personnel Strength by Rank:\n"
+            response += "  - Units Covered: 0\n"
+            response += f"  - Total Personnel: {int(total_personnel)}\n"
+            response += "  - Note: Exact vacancies require sanctioned strength data.\n"
+            response += "  - Source: rank-wise fallback (unit linkage unavailable).\n"
+
+            response += "\nRank-wise personnel:\n"
+            for item in rank_distribution[:12]:
+                if not isinstance(item, dict):
+                    continue
+                rank_name = item.get("rankName") or "Unknown"
+                count = int(item.get("count") or 0)
+                response += f"  - {rank_name}: {count}\n"
 
             return response
 

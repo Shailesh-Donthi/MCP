@@ -15,4 +15,3 @@ from mcp.server_http import main  # type: ignore  # resolved from server/mcp
 
 if __name__ == "__main__":
     main()
-

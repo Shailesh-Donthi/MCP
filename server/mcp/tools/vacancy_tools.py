@@ -246,6 +246,56 @@ class CountVacanciesByUnitRankTool(BaseTool):
         ).to_list(length=1)
         total_units = count_result[0]["total"] if count_result else len(formatted_results)
 
+        # Some datasets do not materialize personnel->unit links in the shape
+        # this tool expects. Fall back to rank-wise personnel distribution so
+        # vacancy-style queries still return meaningful operational output.
+        if not formatted_results:
+            fallback_distribution: List[Dict[str, Any]] = []
+            fallback_total_personnel = 0
+            try:
+                fallback_args: Dict[str, Any] = {"group_by": "rank"}
+                if district_id:
+                    fallback_args["district_id"] = district_id
+                elif district_name:
+                    fallback_args["district_name"] = district_name
+                if unit_name:
+                    fallback_args["unit_name"] = unit_name
+
+                distribution_tool = GetPersonnelDistributionTool(self.db)
+                fallback_result = await distribution_tool.execute(fallback_args, context)
+                if isinstance(fallback_result, dict) and fallback_result.get("success"):
+                    fallback_data = fallback_result.get("data", {})
+                    if isinstance(fallback_data, dict):
+                        raw_distribution = fallback_data.get("distribution", [])
+                        if isinstance(raw_distribution, list):
+                            fallback_distribution = raw_distribution
+                        fallback_total_personnel = int(fallback_data.get("total") or 0)
+            except Exception:
+                fallback_distribution = []
+                fallback_total_personnel = 0
+
+            if fallback_distribution:
+                return self.format_success_response(
+                    query_type="vacancies_by_unit_rank",
+                    data={
+                        "units": [],
+                        "summary": {
+                            "totalUnits": 0,
+                            "totalPersonnel": fallback_total_personnel,
+                        },
+                        "rank_distribution": fallback_distribution,
+                    },
+                    total=fallback_total_personnel,
+                    page=page,
+                    page_size=page_size,
+                    metadata={
+                        "district_id": district_id,
+                        "unit_id": unit_id,
+                        "note": "Exact vacancies require sanctioned strength data; showing rank strength fallback.",
+                        "fallback": "personnel_distribution_rank",
+                    },
+                )
+
         return self.format_success_response(
             query_type="vacancies_by_unit_rank",
             data={
