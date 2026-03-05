@@ -213,8 +213,8 @@ def generate_natural_language_response(
             ]
             if assignments:
                 lines.append("   - Active assignments:")
-                for idx, assignment in enumerate(assignments, start=1):
-                    lines.append(f"     {idx}. {_assignment_text(assignment)}")
+                for assignment in assignments:
+                    lines.append(f"     * {_assignment_text(assignment)}")
             return lines
 
         lines = [f"Found {total} matching personnel record(s) with full details:", ""]

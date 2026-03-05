@@ -1031,6 +1031,11 @@ class IntelligentQueryHandler:
                     else:
                         tool_name, arguments, result = resolved_tool, resolved_args, resolved_result
                     force_deterministic_response = True
+            else:
+                # LLM picked a different tool (e.g. search_personnel) for a role-of-unit
+                # query — override with the authoritative unit-filter path.
+                tool_name, arguments, result = await _resolve_via_unit_filter()
+                force_deterministic_response = True
 
         use_followup_district = bool(is_followup_district_query(clean_query))
         district_response: Optional[str] = None
