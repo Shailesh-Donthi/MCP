@@ -337,7 +337,8 @@ class PersonnelFormatterTests(unittest.TestCase):
             result,
         )
 
-        self.assertIn("action completed successfully", response.lower())
+        self.assertIn("police constable", response.lower())
+        self.assertIn("sub inspector", response.lower())
 
 
 if __name__ == "__main__":

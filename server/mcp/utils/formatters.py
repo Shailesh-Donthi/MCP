@@ -261,5 +261,155 @@ def generate_natural_language_response(
             return "No assignment records matched the query."
         return f"Found {total} assignment records."
 
+    if tool_name in ("query_personnel_by_rank", "query_personnel_by_unit"):
+        rows = data if isinstance(data, list) else []
+        total = int(pagination.get("total", len(rows)) or 0)
+        if total == 0:
+            return "No personnel records matched."
+        lines = [f"Found {total} personnel record(s):", ""]
+        for i, row in enumerate(rows if isinstance(rows, list) else [], start=1):
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "Unknown")
+            rank = str(row.get("rankName") or row.get("rankShortCode") or "")
+            unit = str(row.get("unitName") or "")
+            district = str(row.get("districtName") or "")
+            detail = " | ".join(p for p in [rank, unit, district] if p)
+            lines.append(f"{i}. {name}" + (f"  —  {detail}" if detail else ""))
+        if total > len(rows):
+            page = int(pagination.get("page") or 1)
+            total_pages = int(pagination.get("total_pages") or 1)
+            lines.append(f"\nShowing page {page}/{total_pages}. {total - len(rows)} more record(s) available.")
+        return "\n".join(lines)
+
+    if tool_name == "list_districts":
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            return "No districts found."
+        names = [str(r.get("name") or r) for r in rows if r]
+        return "Districts: " + ", ".join(names) + "."
+
+    if tool_name == "list_units_in_district":
+        rows = data if isinstance(data, list) else []
+        total = int(pagination.get("total", len(rows)) or 0)
+        if total == 0:
+            return "No units found in that district."
+        names = [str(r.get("name") or "") for r in rows if isinstance(r, dict) and r.get("name")]
+        summary = ", ".join(names[:10])
+        if total > 10:
+            summary += f" … and {total - 10} more"
+        return f"Found {total} unit(s): {summary}."
+
+    if tool_name == "get_unit_hierarchy":
+        if not isinstance(data, dict):
+            return "No hierarchy data found."
+        unit_name = str(data.get("name") or data.get("unitName") or "the unit")
+        parent = data.get("parent") or data.get("parentUnit")
+        children = data.get("children") or data.get("childUnits") or []
+        lines = [f"Hierarchy for {unit_name}:"]
+        if isinstance(parent, dict):
+            lines.append(f"  Parent: {parent.get('name') or 'unknown'}")
+        elif isinstance(parent, str) and parent:
+            lines.append(f"  Parent: {parent}")
+        if isinstance(children, list) and children:
+            child_names = [str(c.get("name") or c) for c in children if c]
+            lines.append(f"  Children ({len(child_names)}): {', '.join(child_names)}")
+        return "\n".join(lines)
+
+    if tool_name == "get_unit_command_history":
+        rows = data if isinstance(data, list) else ([] if not isinstance(data, dict) else [data])
+        if not rows:
+            meta = result.get("metadata") or {}
+            return str(meta.get("message") or "No command history found.")
+        lines = []
+        for i, row in enumerate(rows, start=1):
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or row.get("officerName") or "Unknown")
+            rank = str(row.get("rankName") or "")
+            period = str(row.get("period") or row.get("tenure") or "")
+            detail = " | ".join(p for p in [rank, period] if p)
+            lines.append(f"{i}. {name}" + (f"  —  {detail}" if detail else ""))
+        return "\n".join(lines) if lines else "No command history found."
+
+    if tool_name == "query_recent_transfers":
+        rows = data if isinstance(data, list) else []
+        total = int(pagination.get("total", len(rows)) or 0)
+        if total == 0:
+            return "No recent transfers found."
+        lines = [f"Found {total} recent transfer(s):", ""]
+        for i, row in enumerate(rows, start=1):
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or row.get("personnelName") or "Unknown")
+            from_unit = str(row.get("fromUnitName") or "")
+            to_unit = str(row.get("toUnitName") or "")
+            date = str(row.get("changedAt") or row.get("date") or "")
+            if "T" in date:
+                date = date.split("T")[0]
+            parts = [p for p in [from_unit and f"from {from_unit}", to_unit and f"to {to_unit}", date] if p]
+            lines.append(f"{i}. {name}" + (f"  —  {' '.join(parts)}" if parts else ""))
+        if total > len(rows):
+            lines.append(f"\n{total - len(rows)} more transfer(s) not shown.")
+        return "\n".join(lines)
+
+    if tool_name == "count_vacancies_by_unit_rank":
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            rows = (
+                data.get("rank_distribution")
+                or data.get("units")
+                or data.get("rows")
+                or []
+            )
+        else:
+            rows = []
+        if not rows:
+            return "No vacancy data found."
+        lines = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            label = str(
+                row.get("unitName") or row.get("rankName") or row.get("name") or "Unknown"
+            )
+            count = int(row.get("vacancies") or row.get("vacancyCount") or row.get("count") or 0)
+            lines.append(f"{label}: {count}")
+        return "\n".join(lines) if lines else "No vacancy data found."
+
+    if tool_name == "get_personnel_distribution":
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            return "No distribution data found."
+        lines = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            label = str(row.get("group") or row.get("name") or row.get("_id") or "Unknown")
+            count = int(row.get("count") or row.get("total") or 0)
+            lines.append(f"{label}: {count}")
+        return "\n".join(lines) if lines else "No distribution data found."
+
+    if tool_name in ("find_missing_village_mappings", "get_village_coverage"):
+        if isinstance(data, dict):
+            return "\n".join(f"{k}: {v}" for k, v in data.items() if not isinstance(v, (dict, list)))
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            return "No village mapping data found."
+        total = int(pagination.get("total", len(rows)) or 0)
+        return f"Found {total} village mapping record(s)."
+
+    if tool_name == "query_linked_master_data":
+        rows = data if isinstance(data, list) else []
+        total = int(pagination.get("total", len(rows)) or 0)
+        if total == 0:
+            return "No master data records found."
+        return f"Found {total} master data record(s)."
+
     # Fallback response for unsupported tool natural language generation
-    return str(result.get("response", "Action completed successfully."))
+    if isinstance(data, list) and data:
+        return f"Found {len(data)} record(s)."
+    if isinstance(data, dict) and data:
+        return "Record retrieved successfully."
+    return "No records matched."
