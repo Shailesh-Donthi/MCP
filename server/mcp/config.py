@@ -25,6 +25,11 @@ class MCPSettings(BaseSettings):
     MCP_QUERY_TIMEOUT_MS: int = 30000
     MCP_MAX_AGGREGATION_STAGES: int = 10
 
+    # Routing mode:
+    #   "mixed"        — LLM/heuristic tool router + dynamic_query fallback (default)
+    #   "dynamic_only" — skip all tools; every query goes to DynamicQueryOrchestrator
+    ROUTING_MODE: str = "mixed"
+
     # Allowed collections for queries (whitelist)
     MCP_ALLOWED_COLLECTIONS: str = (
         "approval_flow_master,department_master,district_master,error_master,"

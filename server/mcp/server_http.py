@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -16,7 +17,8 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 try:
@@ -417,6 +419,19 @@ app = FastAPI(
     version=f"{mcp_settings.MCP_SERVER_VERSION}-v2",
     lifespan=lifespan,
 )
+
+_CLIENT_DIR = Path(__file__).resolve().parent.parent.parent / "client"
+
+if _CLIENT_DIR.is_dir():
+    app.mount("/client", StaticFiles(directory=str(_CLIENT_DIR)), name="client")
+
+
+@app.get("/", include_in_schema=False)
+async def serve_ui():
+    if _CLIENT_DIR.is_dir():
+        return RedirectResponse(url="/client/chatbot.html")
+    return RedirectResponse(url="/health")
+
 
 allowed_origins = [o.strip() for o in str(settings.ALLOWED_ORIGINS or "*").split(",") if o.strip()]
 if not allowed_origins:

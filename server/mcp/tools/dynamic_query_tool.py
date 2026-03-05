@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 _MAX_RESULTS = 500
 
-# Whitelisted collection names (derived from Collections constants)
+# ---------------------------------------------------------------------------
+# Collection whitelist
+# ---------------------------------------------------------------------------
+
 _ALL_COLLECTIONS: Set[str] = {
     v for k, v in vars(Collections).items()
     if not k.startswith("_") and isinstance(v, str)
@@ -40,15 +43,116 @@ _DENIED_COLLECTIONS: Set[str] = {
 
 READABLE_COLLECTIONS: Set[str] = _ALL_COLLECTIONS - _DENIED_COLLECTIONS
 
-# MongoDB operators that execute JavaScript or perform writes
+# ---------------------------------------------------------------------------
+# Known foreign-key relationships between collections.
+# The LLM uses this to write correct $lookup stages for cross-collection joins.
+# Format per entry: {field, references, ref_field, description}
+#   field       — field in THIS collection that holds the foreign key
+#   references  — the target collection name
+#   ref_field   — field in the target collection that matches (usually "_id")
+#   description — plain-English meaning of the join
+# ---------------------------------------------------------------------------
+
+COLLECTION_RELATIONSHIPS: Dict[str, List[Dict[str, str]]] = {
+    Collections.PERSONNEL_MASTER: [
+        {
+            "field": "rankId",
+            "references": Collections.RANK_MASTER,
+            "ref_field": "_id",
+            "description": "Rank of the officer (name, shortCode)",
+        },
+        {
+            "field": "designationId",
+            "references": Collections.DESIGNATION_MASTER,
+            "ref_field": "_id",
+            "description": "Designation/role title of the officer",
+        },
+        {
+            "field": "departmentId",
+            "references": Collections.DEPARTMENT,
+            "ref_field": "_id",
+            "description": "Department the officer belongs to",
+        },
+    ],
+    Collections.ASSIGNMENT_MASTER: [
+        {
+            "field": "userId",
+            "references": Collections.PERSONNEL_MASTER,
+            "ref_field": "_id",
+            "description": "The personnel record for this posting",
+        },
+        {
+            "field": "unitId",
+            "references": Collections.UNIT,
+            "ref_field": "_id",
+            "description": "The unit/station this officer is posted at",
+        },
+        {
+            "field": "designationId",
+            "references": Collections.DESIGNATION_MASTER,
+            "ref_field": "_id",
+            "description": "Role/designation within this posting",
+        },
+    ],
+    Collections.UNIT: [
+        {
+            "field": "districtId",
+            "references": Collections.DISTRICT,
+            "ref_field": "_id",
+            "description": "District this unit belongs to",
+        },
+        {
+            "field": "parentUnitId",
+            "references": Collections.UNIT,
+            "ref_field": "_id",
+            "description": "Parent unit in the hierarchy (self-referential)",
+        },
+        {
+            "field": "unitTypeId",
+            "references": Collections.UNIT_TYPE,
+            "ref_field": "_id",
+            "description": "Type/category of the unit",
+        },
+    ],
+    Collections.UNIT_VILLAGES: [
+        {
+            "field": "unitId",
+            "references": Collections.UNIT,
+            "ref_field": "_id",
+            "description": "Unit responsible for this village",
+        },
+        {
+            "field": "mandalId",
+            "references": Collections.MANDAL,
+            "ref_field": "_id",
+            "description": "Mandal (sub-district) the village is in",
+        },
+    ],
+    Collections.MANDAL: [
+        {
+            "field": "districtId",
+            "references": Collections.DISTRICT,
+            "ref_field": "_id",
+            "description": "District this mandal belongs to",
+        },
+    ],
+}
+
+# ---------------------------------------------------------------------------
+# Blocked operators / write stages
+# ---------------------------------------------------------------------------
+
 _BLOCKED_OPERATORS: Set[str] = {
     "$where", "$function", "$accumulator",
     "$out", "$merge",
 }
 
-# Pipeline stages that write data
 _WRITE_STAGES: Set[str] = {"$out", "$merge"}
 
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
 
 class QueryValidationError(Exception):
     """Raised when an LLM-generated query fails safety validation."""
@@ -97,6 +201,10 @@ class QueryValidator:
             QueryValidator._scan_blocked(stage)
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def _infer_scope_type(collection: str) -> str:
     """Map collection name to the ScopeFilter collection_type string."""
     if collection == Collections.PERSONNEL_MASTER:
@@ -121,6 +229,10 @@ def _serialize(doc: Any) -> Any:
     return doc
 
 
+# ---------------------------------------------------------------------------
+# Executor
+# ---------------------------------------------------------------------------
+
 class DynamicQueryExecutor:
     """Executes validated read-only MongoDB queries with scope enforcement."""
 
@@ -129,8 +241,8 @@ class DynamicQueryExecutor:
         self.scope_filter = ScopeFilter(db)
 
     async def describe_collections(self) -> Dict[str, Any]:
-        """Return readable collection names and a sample of their field names."""
-        schema: Dict[str, List[str]] = {}
+        """Return field names and known FK relationships for every readable collection."""
+        schema: Dict[str, Any] = {}
         for coll_name in sorted(READABLE_COLLECTIONS):
             try:
                 sample = await self.db[coll_name].find_one(
@@ -138,9 +250,15 @@ class DynamicQueryExecutor:
                 )
                 if sample is None:
                     sample = await self.db[coll_name].find_one({}, {"_id": 0})
-                schema[coll_name] = sorted(sample.keys()) if sample else []
+                fields = sorted(sample.keys()) if sample else []
             except Exception:
-                schema[coll_name] = []
+                fields = []
+
+            entry: Dict[str, Any] = {"fields": fields}
+            if coll_name in COLLECTION_RELATIONSHIPS:
+                entry["relationships"] = COLLECTION_RELATIONSHIPS[coll_name]
+            schema[coll_name] = entry
+
         return {"collections": schema}
 
     async def find(

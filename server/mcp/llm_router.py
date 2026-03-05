@@ -681,6 +681,48 @@ class IntelligentQueryHandler:
         available_tools = self._available_tools()
         llm_context = list(history)
 
+        # ── dynamic_only mode: bypass all tool routing ──────────────────────
+        from mcp.config import mcp_settings
+        if mcp_settings.ROUTING_MODE == "dynamic_only":
+            from mcp.core.database import get_database
+            from mcp.orchestration.dynamic_query_orchestrator import DynamicQueryOrchestrator
+            from mcp.tools.dynamic_query_tool import DynamicQueryExecutor
+
+            db = get_database()
+            orchestrator = DynamicQueryOrchestrator(DynamicQueryExecutor(db))
+            dq_result = await orchestrator.run(
+                intent=clean_query,
+                context=context,
+                conversation_context=llm_context,
+            )
+            response_text = dq_result.get("response") or "No answer returned."
+            history.append({"role": "user", "content": clean_query})
+            history.append({"role": "assistant", "content": response_text})
+            output_payload = build_output_payload(
+                query=clean_query,
+                response_text=response_text,
+                routed_to="dynamic_query",
+                arguments={},
+                result=dq_result,
+                requested_format=output_format,
+                allow_download=allow_download,
+            )
+            return {
+                "success": dq_result.get("success", True),
+                "query": clean_query,
+                "response": response_text,
+                "routed_to": "dynamic_query",
+                "arguments": {},
+                "extracted_arguments": {},
+                "data": dq_result.get("data", {}),
+                "route_source": "dynamic_only",
+                "route_confidence": 1.0,
+                "understood_as": clean_query,
+                "output": output_payload,
+                "history_size": len(history),
+            }
+        # ────────────────────────────────────────────────────────────────────
+
         # Backward-compatible multi-step chain support used by unit tests.
         chain_parts = self._split_complex_query_chain(clean_query)
         if chain_parts:
