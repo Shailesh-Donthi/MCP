@@ -1079,21 +1079,26 @@ class QueryPersonnelByRankTool(BaseTool):
                 }
             },
             {"$unwind": {"path": "$rankData", "preserveNullAndEmptyArrays": True}},
-            self._build_assignment_lookup_stage(),
-            {"$unwind": {"path": "$assignmentData", "preserveNullAndEmptyArrays": True}},
             {
-                "$match": {
-                    "$or": [
-                        {"assignmentData": {"$eq": None}},
+                # Fetch only the single active assignment to avoid eliminating
+                # personnel who have no current active posting (all records deleted).
+                "$lookup": {
+                    "from": Collections.ASSIGNMENT_MASTER,
+                    "let": {"pid": "$_id"},
+                    "pipeline": [
                         {
-                            "$and": [
-                                {"assignmentData.isDelete": False},
-                                {"assignmentData.isActive": True},
-                            ]
+                            "$match": {
+                                "$expr": {"$eq": ["$userId", "$$pid"]},
+                                "isDelete": False,
+                                "isActive": True,
+                            }
                         },
-                    ]
+                        {"$limit": 1},
+                    ],
+                    "as": "assignmentData",
                 }
             },
+            {"$unwind": {"path": "$assignmentData", "preserveNullAndEmptyArrays": True}},
             {
                 "$lookup": {
                     "from": Collections.UNIT,
@@ -1153,7 +1158,7 @@ class QueryPersonnelByRankTool(BaseTool):
             pipeline
         ).to_list(length=None)
 
-        # Count through the same pipeline (including assignment-active filter and $group),
+        # Count through the same pipeline (through $group, which deduplicates personnel),
         # but without $sort/$skip/$limit/$project, so the total matches what data returns.
         count_pipeline = pipeline[:-4] + [{"$count": "total"}]
         count_result = await self.db[Collections.PERSONNEL_MASTER].aggregate(

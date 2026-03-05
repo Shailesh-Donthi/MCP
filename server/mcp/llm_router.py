@@ -596,7 +596,7 @@ class IntelligentQueryHandler:
                 continue
             rn = _rank_name(row)
             rc = _rank_code(row)
-            if role_key == "sp" and "superintendent of police" in rn:
+            if role_key == "sp" and (rc == "SP" or rn == "superintendent of police"):
                 filtered.append(row)
             elif role_key == "igp" and ("inspector general of police" in rn or rc == "IGP"):
                 filtered.append(row)
