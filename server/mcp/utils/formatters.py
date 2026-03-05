@@ -262,8 +262,16 @@ def generate_natural_language_response(
         return f"Found {total} assignment records."
 
     if tool_name in ("query_personnel_by_rank", "query_personnel_by_unit"):
-        rows = data if isinstance(data, list) else []
-        total = int(pagination.get("total", len(rows)) or 0)
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            # Grouped result: {"total_personnel": N, "groups": [{"rankName": ..., "personnel": [...]}]}
+            rows = []
+            for group in (data.get("groups") or []):
+                rows.extend(group.get("personnel") or group.get("members") or [])
+        else:
+            rows = []
+        total = int(pagination.get("total", pagination.get("total_personnel", len(rows))) or 0)
         if total == 0:
             return "No personnel records matched."
         lines = [f"Found {total} personnel record(s):", ""]

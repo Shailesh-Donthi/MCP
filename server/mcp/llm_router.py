@@ -993,7 +993,33 @@ class IntelligentQueryHandler:
                     tool_name, arguments, result = await _resolve_via_unit_filter()
                     force_deterministic_response = True
             elif tool_name == "query_personnel_by_rank":
-                tool_name, arguments, result = await _resolve_via_unit_filter()
+                # Try unit-name lookup first (gives the person in the specific unit).
+                new_tool, new_args, new_result = await _resolve_via_unit_filter()
+                new_rows = new_result.get("data") if isinstance(new_result, dict) else None
+                if new_rows:
+                    # Unit filter found results — use them.
+                    tool_name, arguments, result = new_tool, new_args, new_result
+                else:
+                    # Unit filter returned nothing (e.g. "Guntur" is a district name, not a unit).
+                    # Fall back to the original (already district-scoped) rank result.
+                    current_rows = result.get("data", []) if isinstance(result, dict) else []
+                    if isinstance(current_rows, list) and current_rows:
+                        candidates = self._filter_role_candidates(current_rows, role_key, unit_name=None)
+                        if len(candidates) == 1:
+                            user_id = str(candidates[0].get("userId") or "").strip()
+                            if user_id:
+                                pr = await self.tool_handler.execute(
+                                    "search_personnel", {"user_id": user_id}, context
+                                )
+                                tool_name, arguments, result = "search_personnel", {"user_id": user_id}, pr
+                        elif len(candidates) > 1:
+                            total = len(candidates)
+                            result = {
+                                "success": True,
+                                "data": candidates,
+                                "pagination": {"page": 1, "page_size": total, "total": total, "total_pages": 1},
+                            }
+                        # else: no exact-role match; keep original rank result
                 force_deterministic_response = True
             elif tool_name == "query_personnel_by_unit":
                 resolved = _resolve_from_current_unit_result(result if isinstance(result, dict) else {})
