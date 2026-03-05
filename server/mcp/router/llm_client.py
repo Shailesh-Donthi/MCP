@@ -1,5 +1,6 @@
 """Thin wrappers around OpenAI/Azure chat APIs."""
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -139,6 +140,20 @@ def _get_openai_model() -> str:
     )
 
 
+def _extract_content(response: httpx.Response) -> Optional[str]:
+    """Extract content string from a 200 chat completions response."""
+    data = response.json()
+    choices = data.get("choices") or []
+    if not choices:
+        logger.warning("LLM API returned 200 with empty choices: %s", response.text[:300])
+        return None
+    content = (choices[0].get("message") or {}).get("content")
+    if content is None:
+        finish_reason = choices[0].get("finish_reason", "unknown")
+        logger.warning("LLM API returned null content (finish_reason=%s): %s", finish_reason, response.text[:300])
+    return content
+
+
 async def call_openai_api(
     messages: List[Dict[str, str]],
     system: str,
@@ -153,39 +168,34 @@ async def call_openai_api(
     chat_url = _get_openai_chat_url()
     headers = _build_openai_headers(openai_api_key, openai_base_url)
     is_azure = _is_azure_openai_compatible_base_url(openai_base_url)
+    payload = {
+        "model": openai_model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "system", "content": system}, *messages],
+    }
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                chat_url,
-                headers=headers,
-                json={
-                    "model": openai_model,
-                    "max_tokens": max_tokens,
-                    "messages": [{"role": "system", "content": system}, *messages],
-                },
-            )
-            if response.status_code == 200:
-                data = response.json()
-                return data["choices"][0]["message"]["content"]
-            # Common setup issue: unsupported or unavailable model name.
-            if (
-                response.status_code in {400, 404}
-                and openai_model != "gpt-4o-mini"
-                and not is_azure
-            ):
-                fallback_response = await client.post(
-                    chat_url,
-                    headers=headers,
-                    json={
-                        "model": "gpt-4o-mini",
-                        "max_tokens": max_tokens,
-                        "messages": [{"role": "system", "content": system}, *messages],
-                    },
-                )
-                if fallback_response.status_code == 200:
-                    data = fallback_response.json()
-                    return data["choices"][0]["message"]["content"]
-            logger.error("OpenAI API error: %s - %s", response.status_code, response.text)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for attempt in range(3):
+                response = await client.post(chat_url, headers=headers, json=payload)
+                if response.status_code == 200:
+                    return _extract_content(response)
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("retry-after", 15))
+                    logger.warning("LLM API rate limited (429); retrying after %ds (attempt %d)", retry_after, attempt + 1)
+                    await asyncio.sleep(retry_after)
+                    continue
+                # Common setup issue: unsupported or unavailable model name.
+                if response.status_code in {400, 404} and openai_model != "gpt-4o-mini" and not is_azure:
+                    fallback = await client.post(
+                        chat_url,
+                        headers=headers,
+                        json={**payload, "model": "gpt-4o-mini"},
+                    )
+                    if fallback.status_code == 200:
+                        return _extract_content(fallback)
+                logger.error("LLM API error: %s - %s", response.status_code, response.text[:300])
+                return None
+            logger.error("LLM API rate limit not resolved after 3 retries")
             return None
     except Exception as exc:
         logger.exception("OpenAI API call failed: %s", exc)

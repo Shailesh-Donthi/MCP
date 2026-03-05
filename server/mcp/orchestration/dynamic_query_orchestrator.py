@@ -18,101 +18,79 @@ from mcp.tools.dynamic_query_tool import DynamicQueryExecutor, QueryValidationEr
 
 logger = logging.getLogger(__name__)
 
-_MAX_TURNS = 8
+_MAX_TURNS = 12
+
+# Static schema returned immediately when LLM calls describe_collections,
+# avoiding a DB roundtrip and keeping the turn count low.
+_STATIC_SCHEMA_RESPONSE: Dict[str, Any] = {
+    "collections": {
+        "personnel_master": {
+            "fields": ["_id", "name", "badgeNo", "mobileNo", "rankId", "designationId", "departmentId", "isDelete", "isActive"],
+            "relationships": {"rankId": "rank_master._id", "designationId": "designation_master._id", "departmentId": "department_master._id"},
+        },
+        "rank_master": {"fields": ["_id", "name", "shortCode", "order", "isDelete"]},
+        "designation_master": {"fields": ["_id", "name", "isDelete"]},
+        "department_master": {"fields": ["_id", "name", "isDelete"]},
+        "assignment_master": {
+            "fields": ["_id", "userId", "unitId", "designationId", "fromDate", "toDate", "isActive", "isDelete"],
+            "relationships": {"userId": "personnel_master._id", "unitId": "unit_master._id", "designationId": "designation_master._id"},
+        },
+        "unit_master": {
+            "fields": ["_id", "name", "shortCode", "districtId", "parentUnitId", "unitTypeId", "isDelete"],
+            "relationships": {"districtId": "district_master._id", "parentUnitId": "unit_master._id", "unitTypeId": "unit_type_master._id"},
+        },
+        "unit_type_master": {"fields": ["_id", "name", "isDelete"]},
+        "district_master": {"fields": ["_id", "name", "shortCode", "isDelete"]},
+        "mandal_master": {
+            "fields": ["_id", "name", "districtId", "isDelete"],
+            "relationships": {"districtId": "district_master._id"},
+        },
+        "unit_villages_master": {
+            "fields": ["_id", "unitId", "mandalId", "villageName", "isDelete"],
+            "relationships": {"unitId": "unit_master._id", "mandalId": "mandal_master._id"},
+        },
+    }
+}
 
 _SYSTEM_PROMPT = """\
 You are a read-only MongoDB query assistant for a Police Personnel management system.
-Your task: answer the user's intent by querying the database step-by-step.
+Answer the user's intent by querying the database step-by-step.
+Output ONLY a single JSON object per turn — no prose before or after.
 
-## Available operations
-Respond with exactly one JSON object per turn. No prose before or after the JSON.
+## Actions
+{"action":"find","collection":"<col>","filter":{...},"projection":{...},"limit":<1-200>}
+{"action":"aggregate","collection":"<col>","pipeline":[...]}
+{"action":"done","answer":"<natural language answer>"}
 
-### Describe collections — learn field names before querying
-{"action": "describe_collections"}
+## Schema (fields)
+personnel_master: _id,name,badgeNo,mobileNo,rankId,designationId,departmentId,isDelete,isActive
+rank_master: _id,name,shortCode,order,isDelete  [shortCodes: Constable,HC,ASI,SI,Inspector,DSP,SP,DySP]
+assignment_master: _id,userId,unitId,designationId,fromDate,toDate,isActive,isDelete
+unit_master: _id,name,shortCode,districtId,parentUnitId,unitTypeId,isDelete
+district_master: _id,name,shortCode,isDelete
+mandal_master: _id,name,districtId,isDelete
+unit_villages_master: _id,unitId,mandalId,villageName,isDelete
+designation_master,department_master,unit_type_master: _id,name,isDelete
 
-### Find documents
-{"action": "find", "collection": "<name>", "filter": {<MongoDB filter>}, "projection": {<fields>}, "limit": <int 1-500>}
-
-### Aggregate (use for joins, grouping, counting, sorting across collections)
-{"action": "aggregate", "collection": "<name>", "pipeline": [<stages>], "description": "<what this does>"}
-
-### Done — return the final answer to the user
-{"action": "done", "answer": "<natural language answer>"}
-
-## Collection relationships (foreign keys)
-Use these to write correct $lookup stages when the user's query spans multiple collections.
-
-personnel_master:
-  - rankId        → rank_master._id        (rank name, shortCode)
-  - designationId → designation_master._id (designation/role title)
-  - departmentId  → department_master._id  (department)
-
-assignment_master:
-  - userId        → personnel_master._id   (the officer)
-  - unitId        → unit_master._id        (unit/station posted at)
-  - designationId → designation_master._id (role within posting)
-
-unit_master:
-  - districtId    → district_master._id    (district the unit belongs to)
-  - parentUnitId  → unit_master._id        (parent unit, self-referential)
-  - unitTypeId    → unit_type_master._id   (type/category of unit)
-
-unit_villages_master:
-  - unitId        → unit_master._id        (unit responsible for village)
-  - mandalId      → mandal_master._id      (sub-district)
-
-mandal_master:
-  - districtId    → district_master._id    (district)
-
-## $lookup join patterns
-
-### Pattern 1 — enrich personnel with rank name
-{"action": "aggregate", "collection": "personnel_master", "pipeline": [
-  {"$match": {"isDelete": false}},
-  {"$lookup": {"from": "rank_master", "localField": "rankId", "foreignField": "_id", "as": "rank"}},
-  {"$unwind": {"path": "$rank", "preserveNullAndEmptyArrays": true}},
-  {"$project": {"name": 1, "badgeNo": 1, "rankName": "$rank.name", "shortCode": "$rank.shortCode"}},
-  {"$limit": 50}
-]}
-
-### Pattern 2 — find officers posted at a named unit (join through assignment)
-{"action": "aggregate", "collection": "unit_master", "pipeline": [
-  {"$match": {"name": {"$regex": "Guntur", "$options": "i"}, "isDelete": false}},
-  {"$lookup": {
-    "from": "assignment_master",
-    "let": {"uid": "$_id"},
-    "pipeline": [
-      {"$match": {"$expr": {"$eq": ["$unitId", "$$uid"]}, "isDelete": false, "isActive": true}},
-      {"$lookup": {"from": "personnel_master", "localField": "userId", "foreignField": "_id", "as": "person"}},
-      {"$unwind": "$person"},
-      {"$lookup": {"from": "rank_master", "localField": "person.rankId", "foreignField": "_id", "as": "rank"}},
-      {"$unwind": {"path": "$rank", "preserveNullAndEmptyArrays": true}},
-      {"$project": {"_id": 0, "name": "$person.name", "badgeNo": "$person.badgeNo",
-                    "rankName": "$rank.name", "designationId": 1}}
-    ],
-    "as": "officers"
-  }},
-  {"$limit": 20}
-]}
-
-### Pattern 3 — count personnel by rank across a district
-{"action": "aggregate", "collection": "personnel_master", "pipeline": [
-  {"$match": {"isDelete": false}},
-  {"$lookup": {"from": "rank_master", "localField": "rankId", "foreignField": "_id", "as": "rank"}},
-  {"$unwind": "$rank"},
-  {"$group": {"_id": "$rank.name", "count": {"$sum": 1}}},
-  {"$sort": {"count": -1}}
-]}
+## Foreign keys
+personnel_master.rankId→rank_master._id | personnel_master.designationId→designation_master._id
+assignment_master.userId→personnel_master._id | assignment_master.unitId→unit_master._id
+unit_master.districtId→district_master._id | unit_master.parentUnitId→unit_master._id
+unit_villages_master.unitId→unit_master._id | unit_villages_master.mandalId→mandal_master._id
+mandal_master.districtId→district_master._id
 
 ## Rules
-1. Start with describe_collections only if you are truly unsure of field names. For common lookups (rank, assignment, unit, district) use the relationship map above directly.
-2. Always include "isDelete": false in filters where applicable.
-3. Do NOT use $where, $function, $accumulator, $out, or $merge — they are blocked.
-4. Scope filters (districtId, unitId) are applied automatically — do not add them yourself.
-5. For cross-collection queries always use $lookup inside aggregate rather than multiple sequential find calls.
-6. You have at most {max_turns} turns total. Use "done" before running out.
-7. If the data cannot be found or the question is unanswerable, say so honestly in "answer".
-8. Output ONLY the JSON object. Nothing else.
+1. Always add "isDelete":false to filters. For assignments also check "isActive":true for current postings.
+2. Use $lookup in aggregate for cross-collection joins — never multiple sequential finds.
+3. For rank queries: $lookup rank_master on rankId, then filter by rank.shortCode or rank.name.
+4. For district queries: $lookup unit_master on districtId to find units, then assignment_master on unitId.
+5. For missing mappings: $lookup unit_villages_master on unitId, $match villages size==0.
+6. For transfers: filter assignment_master.fromDate >= date range.
+7. Do NOT use $where,$function,$accumulator,$out,$merge — blocked.
+8. Scope filters are applied automatically — do not add districtId/unitId scope yourself.
+9. You have at most {max_turns} turns. Call "done" before running out.
+10. If the query is unrelated to police personnel, call done immediately with a polite note.
+11. If data is absent, say so clearly (e.g. "No vacancy data found in the system").
 """
 
 
@@ -195,7 +173,7 @@ class DynamicQueryOrchestrator:
         return {
             "success": False,
             "data": {},
-            "response": "I wasn't able to find the information in the database for that query.",
+            "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing.",
             "turns": _MAX_TURNS,
             "route_source": "dynamic_query",
         }
@@ -206,7 +184,9 @@ class DynamicQueryOrchestrator:
         action = str(action_obj.get("action") or "")
         try:
             if action == "describe_collections":
-                return await self.executor.describe_collections()
+                # Return static schema immediately — no DB roundtrip needed.
+                # This prevents the LLM from burning a turn on a DB call it doesn't need.
+                return _STATIC_SCHEMA_RESPONSE
 
             if action == "find":
                 return await self.executor.find(
@@ -234,11 +214,22 @@ class DynamicQueryOrchestrator:
 
 
 def _parse_action(raw: str) -> Optional[Dict[str, Any]]:
-    match = re.search(r"\{[\s\S]*\}", raw)
-    if not match:
-        return None
-    try:
-        obj = json.loads(match.group())
-        return obj if isinstance(obj, dict) else None
-    except json.JSONDecodeError:
-        return None
+    """Extract the first valid JSON object from the LLM response.
+
+    Handles cases where the model prepends prose before the JSON.
+    Tries progressively shorter substrings to find a parseable object.
+    """
+    # Find all '{' positions and try to parse from each one
+    for start in [m.start() for m in re.finditer(r"\{", raw)]:
+        # Find the matching closing brace
+        end = raw.rfind("}")
+        while end > start:
+            candidate = raw[start:end + 1]
+            try:
+                obj = json.loads(candidate)
+                if isinstance(obj, dict) and "action" in obj:
+                    return obj
+            except json.JSONDecodeError:
+                pass
+            end = raw.rfind("}", start, end)
+    return None
