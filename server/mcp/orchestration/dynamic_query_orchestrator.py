@@ -58,7 +58,7 @@ Answer the user's intent by querying the database step-by-step.
 Output ONLY a single JSON object per turn — no prose before or after.
 
 ## Actions
-{"action":"find","collection":"<col>","filter":{...},"projection":{...},"limit":<1-200>}
+{"action":"find","collection":"<col>","filter":{...},"projection":{...},"limit":<1-500>}
 {"action":"aggregate","collection":"<col>","pipeline":[...]}
 {"action":"done","answer":"<natural language answer>"}
 
@@ -80,7 +80,7 @@ unit_villages_master.unitId→unit_master._id | unit_villages_master.mandalId→
 mandal_master.districtId→district_master._id
 
 ## Rules
-1. Always add "isDelete":false to filters. For assignments also check "isActive":true for current postings.
+1. Always add "isDelete":false to filters. ONLY add "isActive":true on assignment_master (for current postings). Do NOT filter by isActive on personnel_master — most personnel have isActive=false but are still valid records.
 2. Use $lookup in aggregate for cross-collection joins — never multiple sequential finds.
 3. For rank queries: $lookup rank_master on rankId, then filter by rank.shortCode or rank.name.
 4. For district queries: $lookup unit_master on districtId to find units, then assignment_master on unitId.
@@ -91,6 +91,7 @@ mandal_master.districtId→district_master._id
 9. You have at most {max_turns} turns. Call "done" before running out.
 10. If the query is unrelated to police personnel, call done immediately with a polite note.
 11. If data is absent, say so clearly (e.g. "No vacancy data found in the system").
+12. When the user asks to "list all" or "show all", use a $limit of 500. Do NOT use small limits like 10 or 50 for listing queries. For $count/$group queries, omit $limit entirely so all records are counted.
 """
 
 
@@ -159,7 +160,9 @@ class DynamicQueryOrchestrator:
                 }
 
             # Execute the operation and feed results back as the next user message
+            logger.info("DynamicQuery turn %d action: %s", turn, json.dumps(action_obj, default=str)[:500])
             op_result = await self._dispatch(action_obj, context)
+            logger.info("DynamicQuery turn %d result count: %s", turn, op_result.get("count", "n/a"))
             result_json = json.dumps(op_result, default=str)
             if len(result_json) > 8000:
                 result_json = result_json[:8000] + "...[truncated]"
