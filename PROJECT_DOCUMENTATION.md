@@ -1,190 +1,463 @@
-# MCP_Proj Documentation
-
-## Overview
-This project is a Police Personnel Reporting assistant built on FastAPI, MongoDB, and a tool-based query layer (MCP style).
-
-It supports:
-- Direct tool execution via REST.
-- Keyword-routed natural language queries.
-- LLM-assisted intelligent routing and response formatting.
-- A browser chat UI (`chatbot.html`) that calls `/api/v1/ask`.
+# Police Personnel Query Assistant - Technical Documentation
 
 ---
 
-## High-Level Architecture
-- `chatbot.html`: Frontend chat interface, quick actions, and API calls.
-- `mcp/server_http.py`: Main HTTP server, endpoints, auth/context extraction, caching, metrics, fallback routing.
-- `mcp/llm_router.py`: Orchestrator for intelligent query processing, session-state memory, tool execution, and response assembly.
-- `mcp/router/*`: Router internals split into modular chunks (`prompts.py`, `llm_client.py`, `extractors.py`, `routing_rules.py`).
-- `mcp/handlers/tool_handler.py`: Tool registry, validation, execution, and standardized error handling.
-- `mcp/tools/*.py`: Domain tools for personnel, units, vacancies, transfers, village mapping, and search.
-- `mcp/query_builder/filters.py`: Scope filtering by unit/district/state access.
-- `mcp/core/database.py`: MongoDB connection lifecycle.
-- `mcp/core/security.py`: JWT decode helper.
-- `mcp/schemas/context_schema.py`: User access context model.
+## Part 1: Technology & Model Overview
+
+### 1.1 Core Stack
+
+- Language: Python 3 (server-side), JavaScript (client-side)
+- API framework: FastAPI
+- ASGI server: Uvicorn
+- Database: MongoDB
+- Mongo drivers: `motor` (async), `pymongo`
+- Cache/rate-limit support: Redis (`redis.asyncio`)
+- HTTP client for LLM calls: `httpx`
+- Config/validation: `pydantic`, `pydantic-settings`
+- Auth/JWT libs: `python-jose`, `PyJWT`
+
+Dependency source: [server/requirements.txt](server/requirements.txt)
+
+### 1.2 Architecture
+
+- Server entrypoint:
+  - [mcp_server.py](mcp_server.py) (compatibility launcher)
+  - [server/mcp_server.py](server/mcp_server.py)
+- Main HTTP/SSE app:
+  - [server/mcp/server_http.py](server/mcp/server_http.py)
+- Query orchestration layer:
+  - [server/mcp/llm_router.py](server/mcp/llm_router.py)
+- Tool execution registry:
+  - [server/mcp/handlers/tool_handler.py](server/mcp/handlers/tool_handler.py)
+
+The system uses deterministic tool execution with optional LLM-based routing/formatting on top.
+
+### 1.3 LLM Model & Provider
+
+LLM integration code: [server/mcp/router/llm_client.py](server/mcp/router/llm_client.py)
+
+- OpenAI / Azure OpenAI-compatible:
+  - Chat endpoint style: `/chat/completions`
+  - Default model fallback: `gpt-4o-mini`
+  - OpenAI env options: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`
+  - Azure env options: `AZURE_AI_ENDPOINT` or `AZURE_OPENAI_ENDPOINT`, plus `AZURE_AI_API_KEY` or `AZURE_OPENAI_API_KEY`, and `AZURE_AI_MODEL` or `AZURE_OPENAI_DEPLOYMENT`
+  - Auto-detects Azure-compatible base URLs and uses `api-key` header for Azure.
+
+Behavior:
+- LLM routing is used when a key is configured.
+- If LLM fails or returns invalid routing JSON, the app falls back to heuristic routing.
+
+### 1.4 Data Layer (Mongo Collections)
+
+Configured whitelist: [server/mcp/config.py](server/mcp/config.py)
+
+Primary collections used include:
+- `personnel_master`
+- `assignment_master`
+- `unit_master`
+- `district_master`
+- `rank_master`
+- `designation_master`
+- `department_master`
+- plus master-data collections (`modules_master`, `prompt_master`, `notification_master`, etc.)
+
+### 1.5 Tooling (Query Capabilities)
+
+Registered tools: [server/mcp/handlers/tool_handler.py](server/mcp/handlers/tool_handler.py)
+
+- `search_personnel`
+- `search_unit`
+- `check_responsible_user`
+- `query_personnel_by_unit`
+- `query_personnel_by_rank`
+- `get_unit_hierarchy`
+- `list_units_in_district`
+- `list_districts`
+- `count_vacancies_by_unit_rank`
+- `get_personnel_distribution`
+- `query_recent_transfers`
+- `get_unit_command_history`
+- `find_missing_village_mappings`
+- `get_village_coverage`
+- `query_linked_master_data`
+
+### 1.6 Frontend
+
+Client is plain HTML/CSS/JavaScript (no React/Vue build system in this repo):
+- [client/chatbot.html](client/chatbot.html)
+- [client/chatbot_app.js](client/chatbot_app.js)
+- [client/chatbot_output.js](client/chatbot_output.js)
+
+### 1.7 Runtime Configuration
+
+Core app settings: [server/mcp/core/config.py](server/mcp/core/config.py)
+
+Key runtime variables:
+- DB: `MONGODB_URI`, `MONGODB_DB_NAME`
+- Server: `MCP_HOST`, `MCP_PORT`
+- CORS: `ALLOWED_ORIGINS`
+- Redis: `REDIS_URL`
+- Auth: `JWT_SECRET_KEY`, `JWT_ALGORITHM`
+- Logging: `MCP_LOG_LEVEL`, `MCP_LOG_FILE`, `MCP_LOG_MAX_BYTES`, `MCP_LOG_BACKUP_COUNT`
+
+### 1.8 Protocols & APIs
+
+- REST endpoints for tools/query/chat
+- SSE endpoint for MCP protocol streaming:
+  - `/api/v1/mcp/sse`
+- Health/metrics endpoints are also available in the FastAPI server.
 
 ---
 
-## Entry Points
-- `mcp_server.py`: Local launcher that calls `mcp.server_http.main()`.
-- `mcp/server_http.py:main()`: Starts Uvicorn on `MCP_HOST:MCP_PORT`.
+## Part 2: Improved MCP Architecture - Relationship-Aware Query System
 
-Run locally:
-```bash
-python mcp_server.py
+### 2.1 Problem Statement
+
+**Current Issue:**
+- Tools query only single collections (e.g., `personnel_master`)
+- When asking "who is John Doe?", only basic personnel data is returned
+- Missing related data from:
+  - `assignment_master` (current/past assignments)
+  - `unit_master` (unit details, hierarchy)
+  - `district_master` (district information)
+  - `rank_master` (rank details)
+  - `designation_master` (designation details)
+  - `department_master` (department info)
+- Complex queries require multiple round trips to database
+- No automatic enrichment of related entities
+- Scope filtering (postCode-based data binding) not integrated into relationship queries
+
+**Root Cause:**
+- Tools execute simple `find()` queries instead of aggregation pipelines with `$lookup`
+- No relationship-aware data access layer
+- Each tool operates in isolation without understanding data relationships
+- Existing `response_enricher.py` does batch lookups but not in single aggregation pipeline
+- Scope filtering (JWT postCode) applied separately, not integrated into enriched queries
+
+### 2.2 Solution Architecture
+
+#### Core Principle: Relationship-Aware Data Access Layer
+
+All queries should automatically enrich results with related data using MongoDB aggregation pipelines.
+
+#### New Architecture Layers
+
 ```
-or:
-```bash
-uvicorn mcp.server_http:app --host 127.0.0.1 --port 8090
++-------------------------------------------------------------+
+|                    API Layer (FastAPI)                       |
+|  - /api/v1/query, /api/v1/ask                               |
+|  - Auth, rate limiting, request validation                   |
++----------------------------+--------------------------------+
+                             |
+                             v
++-------------------------------------------------------------+
+|              Query Orchestration Layer                       |
+|  - LLM/rule-based routing                                   |
+|  - Intent understanding                                     |
+|  - Multi-tool composition (if needed)                       |
++----------------------------+--------------------------------+
+                             |
+                             v
++-------------------------------------------------------------+
+|                  Tool Execution Layer                        |
+|  - Tool registry & validation                               |
+|  - Tool-specific business logic                             |
++----------------------------+--------------------------------+
+                             |
+                             v
++-------------------------------------------------------------+
+|            Relationship-Aware Repository Layer               |
+|  +------------------------------------------------------+  |
+|  |  Entity Repositories (Personnel, Unit, Assignment)    |  |
+|  |  - Understand entity relationships                    |  |
+|  |  - Auto-enrich with related data                      |  |
+|  +------------------------------------------------------+  |
+|  +------------------------------------------------------+  |
+|  |  Relationship Mapper                                  |  |
+|  |  - Defines collection relationships                   |  |
+|  |  - Generates $lookup pipelines                        |  |
+|  +------------------------------------------------------+  |
++----------------------------+--------------------------------+
+                             |
+                             v
++-------------------------------------------------------------+
+|              MongoDB Aggregation Builder                     |
+|  - Builds $lookup/$match/$project pipelines                |
+|  - Handles scope filtering                                  |
+|  - Optimizes query performance                              |
++----------------------------+--------------------------------+
+                             |
+                             v
++-------------------------------------------------------------+
+|                    MongoDB Database                          |
+|  - personnel_master, assignment_master, unit_master, etc.  |
++-------------------------------------------------------------+
 ```
 
 ---
 
-## Main API Endpoints (`mcp/server_http.py`)
-- `GET /health`: Service health status (MongoDB/Redis/tools loaded).
-- `GET /ready`: Readiness probe.
-- `GET /metrics`: Prometheus-style counters.
-- `GET /api/v1/mcp/tools`: List available tools and schemas.
-- `GET /api/v1/mcp/tools/{tool_name}`: Get one tool schema.
-- `POST /api/v1/mcp/tools/{tool_name}/execute`: Execute one tool directly.
-- `POST /api/v1/query`: Keyword-based NL routing to tools.
-- `POST /api/v1/ask`: Intelligent query handler (LLM + rule/fallback) with output formatting layer.
-- `GET /api/v1/mcp/sse`: SSE stream with tool list + keepalive heartbeat.
+### 2.3 Key Components
+
+#### 2.3.1 Relationship Mapper
+
+**Purpose:** Central registry of all collection relationships and how to join them.
+
+```python
+RELATIONSHIP_MAP = {
+    "personnel_master": {
+        "assignments": {
+            "collection": "assignment_master",
+            "local_field": "_id",
+            "foreign_field": "userId",
+            "as": "assignments",
+            "enrich": True,
+            "type": "one-to-many"
+        },
+        "rank": {
+            "collection": "rank_master",
+            "local_field": "rankId",
+            "foreign_field": "_id",
+            "as": "rank",
+            "enrich": True,
+            "type": "one-to-one"
+        },
+        "designation": {
+            "collection": "designation_master",
+            "local_field": "designationId",
+            "foreign_field": "_id",
+            "as": "designation",
+            "enrich": True,
+            "type": "one-to-one"
+        },
+        "department": {
+            "collection": "department_master",
+            "local_field": "departmentId",
+            "foreign_field": "_id",
+            "as": "department",
+            "enrich": False,
+            "type": "one-to-one"
+        }
+    },
+    "assignment_master": {
+        "personnel": {
+            "collection": "personnel_master",
+            "local_field": "userId",
+            "foreign_field": "_id",
+            "as": "personnel",
+            "enrich": True,
+            "type": "many-to-one"
+        },
+        "unit": {
+            "collection": "unit_master",
+            "local_field": "unitId",
+            "foreign_field": "_id",
+            "as": "unit",
+            "enrich": True,
+            "type": "many-to-one"
+        },
+        "designation": {
+            "collection": "designation_master",
+            "local_field": "designationId",
+            "foreign_field": "_id",
+            "as": "designation",
+            "enrich": True,
+            "type": "many-to-one"
+        }
+    },
+    "unit_master": {
+        "district": {
+            "collection": "district_master",
+            "local_field": "districtId",
+            "foreign_field": "_id",
+            "as": "district",
+            "enrich": True,
+            "type": "many-to-one"
+        },
+        "parent_unit": {
+            "collection": "unit_master",
+            "local_field": "parentUnitId",
+            "foreign_field": "_id",
+            "as": "parentUnit",
+            "enrich": False,
+            "type": "many-to-one",
+            "recursive": True
+        },
+        "unit_type": {
+            "collection": "unit_type_master",
+            "local_field": "unitTypeId",
+            "foreign_field": "_id",
+            "as": "unitType",
+            "enrich": False,
+            "type": "many-to-one"
+        }
+    },
+    "district_master": {
+        "mandals": {
+            "collection": "mandal_master",
+            "local_field": "_id",
+            "foreign_field": "districtId",
+            "as": "mandals",
+            "enrich": False,
+            "type": "one-to-many"
+        }
+    },
+    "crpc_requests": {
+        "unit": { ... },
+        "district": { ... },
+        "requested_by_personnel": { ... },
+        "pipelines": {
+            "collection": "crpc_request_pipelines",
+            "local_field": "_id",
+            "foreign_field": "crpcRequestId",
+            "as": "pipelines",
+            "enrich": True,
+            "type": "one-to-many"
+        }
+    },
+    "crpc_request_pipelines": {
+        "crpc_request": { ... },
+        "service": { ... },
+        "operators": {
+            "collection": "operators_list_master",
+            "local_field": "operatorIds",
+            "foreign_field": "_id",
+            "as": "operators",
+            "enrich": True,
+            "type": "many-to-many"
+        }
+    }
+}
+```
+
+#### 2.3.2 Aggregation Pipeline Builder
+
+**Purpose:** Builds MongoDB aggregation pipelines with automatic relationship joins.
+
+**Key Methods:**
+- `build_enriched_query(base_collection, filters, enrichments, scope_filter)`
+- `add_lookups(pipeline, collection, relationships_to_enrich)`
+- `add_scope_filter(pipeline, scope_context)`
+- `optimize_pipeline(pipeline)`
+
+#### 2.3.3 Entity Repositories
+
+**Purpose:** High-level repository classes that automatically enrich queries.
+
+```python
+class PersonnelRepository:
+    async def find_by_name(self, name, scope_context, enrichments=None) -> List[Dict]:
+        """Find personnel by name with automatic relationship enrichment."""
+
+class AssignmentRepository:
+    async def find_by_personnel_id(self, personnel_id, scope_context, include_inactive=False) -> List[Dict]:
+        """Find all assignments for a personnel with unit/district enrichment."""
+
+class UnitRepository:
+    async def find_by_id(self, unit_id, scope_context, include_hierarchy=True) -> Optional[Dict]:
+        """Find unit with district and optionally parent unit."""
+```
+
+#### 2.3.4 Enhanced Tool Implementation
+
+**Before (Single Collection):**
+```python
+async def search_personnel(name, scope_context):
+    result = await db["personnel_master"].find_one(
+        {"name": {"$regex": name, "$options": "i"}}
+    )
+    return result
+```
+
+**After (Relationship-Aware):**
+```python
+async def search_personnel(name, scope_context,
+                          include_assignments=True, include_rank=True):
+    repo = PersonnelRepository(db, relationship_mapper, pipeline_builder)
+    enrichments = []
+    if include_assignments: enrichments.append("assignments")
+    if include_rank: enrichments.append("rank")
+    return await repo.find_by_name(name, scope_context, enrichments)
+```
 
 ---
 
-## Core Server Functions (`mcp/server_http.py`)
-- `lifespan(app)`: Startup/shutdown for DB, tool initialization, optional Redis.
-- `get_current_user_context(...)`: Builds `UserContext` from JWT or defaults to state scope.
-- `_determine_scope_level(payload)`: Maps role names to `unit`/`district`/`state`.
-- `check_rate_limit(...)`: Redis-based rate limiting.
-- `generate_cache_key(...)`: Cache key based on tool, args, and access scope.
-- `route_query_to_tool(query, hint)`: Rule-based router used by `/api/v1/query` and fallback paths.
-- `natural_language_query(...)`: Executes keyword-routed query and formats response.
-- `intelligent_query(...)`: Delegates to `IntelligentQueryHandler.process_query(...)`.
+### 2.4 Implementation Phases
+
+| Phase | Scope | Details |
+|-------|-------|---------|
+| 1 - Core Infrastructure | Relationship Mapper, Pipeline Builder, Base Repository | Define relationships, build $lookup pipelines, scope filter integration |
+| 2 - Entity Repositories | PersonnelRepository, AssignmentRepository, UnitRepository | `find_by_name()`, `find_by_id()`, `find_current_assignment()`, etc. |
+| 3 - Tool Refactoring | Refactor existing tools to use repositories | Maintain backward compatibility |
+| 4 - Advanced Features | Nested relationships, caching, field projection | Performance monitoring |
 
 ---
 
-## Intelligent Query Flow (`mcp/llm_router.py`)
-- `IntelligentQueryHandler.process_query(...)`: Main orchestration for `/api/v1/ask`.
-- `needs_clarification(...)` (from `mcp/router/routing_rules.py`): Detects vague/incomplete prompts and asks user for clarity.
-- `llm_route_query(...)`: Uses Claude/OpenAI to map query to `(tool, arguments)`.
-- `repair_route(...)` (from `mcp/router/routing_rules.py`): Heuristic repair for sparse/ambiguous routing and conversational follow-ups.
-- `llm_format_response(...)`: LLM-based response formatting.
-- `fallback_route_query(...)`: Keyword fallback via `route_query_to_tool(...)`.
-- `fallback_format_response(...)`: Deterministic formatting fallback.
-- `build_output_payload(...)` (from `mcp/utils/output_layer.py`): final output shaping (`text`/`json`/`tree`) and optional download payload.
+### 2.5 Example Query Flow
 
-Conversation memory:
-- Stored in-memory per `session_id` using deque.
-- Last messages are included to resolve follow-ups like "there", "who are the constables?", etc.
-- Additional structured session state stores last tool/arguments/results and last list user IDs for robust follow-up references (e.g., "about 2").
+**User Query:** "Who is John Doe?"
+
+1. **Router** identifies intent -> `search_personnel` tool
+2. **Tool Handler** validates input -> `name="John Doe"`
+3. **Tool** calls `PersonnelRepository.find_by_name("John Doe", scope_context)`
+4. **Repository** consults `RelationshipMapper` for personnel relationships
+5. **Pipeline Builder** creates aggregation pipeline with $lookup for assignments, rank, designation, units, districts + scope filtering
+6. **MongoDB** executes pipeline -> returns enriched document
+7. **API** returns comprehensive response with all related data
 
 ---
 
-## Tool Execution Layer (`mcp/handlers/tool_handler.py`)
-- `ToolHandler.initialize()`: Instantiates all tool classes with DB instance.
-- `ToolHandler.execute(tool_name, arguments, context)`: Validates and runs selected tool.
-- `_validate_arguments(...)`: Basic schema/type/enum checks.
-- `_format_error(...)`: Uniform error shape for API responses.
+### 2.6 Scope Filtering (JWT-Based Data Binding)
 
-Registered tool classes include:
-- `SearchPersonnelTool`, `SearchUnitTool`, `CheckResponsibleUserTool`
-- `QueryPersonnelByUnitTool`, `QueryPersonnelByRankTool`
-- `GetUnitHierarchyTool`, `ListUnitsInDistrictTool`, `ListDistrictsTool`
-- `CountVacanciesByUnitRankTool`, `GetPersonnelDistributionTool`
-- `QueryRecentTransfersTool`, `GetUnitCommandHistoryTool`
-- `FindMissingVillageMappingsTool`, `GetVillageCoverageTool`
+```python
+class ScopeContext:
+    def __init__(self, user_id=None, unit_id=None, district_id=None,
+                 post_code=None, role_name=None, reports_to_post=None): ...
 
----
+    @classmethod
+    async def from_request(cls, request):
+        """Create ScopeContext from FastAPI Request (extracts JWT)."""
+        user_info = await get_user_info_from_request(request)
+        return cls(user_id=user_info.get("_id"), ...)
+```
 
-## Base Tool Contract (`mcp/tools/base_tool.py`)
-All tools inherit `BaseTool` and implement:
-- `execute(arguments, context)`: Business logic.
-- `get_input_schema()`: JSON schema for inputs.
-
-Shared helpers:
-- `apply_scope_filter(...)`: RBAC filtering by user scope.
-- `get_pagination_params(...)`: Page/page_size normalization.
-- `format_success_response(...)`: Standard success payload.
-- `format_error_response(...)`: Standard error payload.
-- `validate_required_params(...)` and `validate_at_least_one(...)`.
+Supports:
+- `postCode` filtering for crpc_requests, crpc_request_pipelines, crpc_data_received
+- `unitId` filtering for unit-scoped queries
+- `districtId` filtering for district-scoped queries
 
 ---
 
-## Tool Modules and Responsibilities
-- `mcp/tools/search_tools.py`
-  - `SearchPersonnelTool`: Find personnel by `name`/`user_id`/`badge_no`/`mobile`/`email`.
-  - `SearchUnitTool`: Find unit by name/reference/city/district.
-  - `CheckResponsibleUserTool`: Check whether a person is responsible officer of a unit.
-- `mcp/tools/personnel_tools.py`
-  - `QueryPersonnelByUnitTool`: Personnel list for a unit.
-  - `QueryPersonnelByRankTool`: Personnel list by rank with optional district filter; includes tolerant rank resolution (aliases, short codes, partial match).
-- `mcp/tools/unit_tools.py`
-  - `GetUnitHierarchyTool`: Unit parent-child structure.
-  - `ListUnitsInDistrictTool`: Units under a district.
-  - `ListDistrictsTool`: District catalog.
-- `mcp/tools/vacancy_tools.py`
-  - `CountVacanciesByUnitRankTool`: Vacancy/strength-oriented reporting.
-  - `GetPersonnelDistributionTool`: Count/distribution views (`rank`/`unit_type`/`district`).
-- `mcp/tools/transfer_tools.py`
-  - `QueryRecentTransfersTool`: Transfer movements over recent time windows.
-  - `GetUnitCommandHistoryTool`: Responsible officer history by unit.
-- `mcp/tools/village_mapping_tools.py`
-  - `FindMissingVillageMappingsTool`: Coverage gaps.
-  - `GetVillageCoverageTool`: Village mapping/coverage report.
+### 2.7 Complex Query Patterns
+
+| Pattern | Example | Approach |
+|---------|---------|----------|
+| Multi-Level Enrichment | "Who is the SHO of Central PS?" | unit -> assignment -> personnel -> rank |
+| Reverse Lookup | "Find all units where John Doe was assigned" | personnel -> assignments -> units |
+| Aggregation + Relationships | "CrPC requests per unit with details" | group by unitId, enrich with unit+district |
+| Temporal Queries | "Personnel at Unit X during 2023" | match by date range + personnel enrichment |
+| Hierarchical Queries | "Child units of Guntur DPO" | recursive parentUnitId lookup |
 
 ---
 
-## Frontend Functions (`chatbot.html`)
-Main interaction functions:
-- `sendMessage()`: Sends query to `/api/v1/ask` and renders response.
-- `createMessage(content, isUser)`: Builds message bubbles.
-- `formatResponse(text)`: Lightweight markdown-like rendering.
-- `showTypingIndicator()` / `removeTypingIndicator()`: Request progress UX.
-- `setConnectionStatus(online, label)`: Header connection state.
-- `startPersonnelSearch()`: Guided helper prompt for personnel search inputs.
-- `triggerDownload(payload)`: Downloads the last formatted output when enabled.
+### 2.8 Performance & Migration
 
-Session handling:
-- Persists `chatSessionId` in `localStorage`.
-- Includes `session_id` in each request so backend can use conversation context.
-- UI no longer includes a Settings panel; API URL is derived from current host as `http(s)://<host>:8090`.
+**Performance SLAs:**
+- Simple enriched query (personnel + rank): < 200ms
+- Medium enriched query (personnel + assignments + unit): < 500ms
+- Complex enriched query (request + pipelines + services): < 1000ms
 
----
+**Migration Path:**
+1. Add new layer (non-breaking) alongside existing tools
+2. Feature flag `ENABLE_RELATIONSHIP_ENRICHMENT`
+3. Gradual migration, one tool at a time
+4. Remove old code after full migration
 
-## Configuration
-Primary settings files:
-- `mcp/core/config.py`: Runtime settings (`MONGODB_URI`, `MCP_HOST`, `MCP_PORT`, `JWT_*`, `REDIS_URL`, CORS).
-- `mcp/config.py`: MCP-specific settings (`MCP_MAX_RESULTS`, page size, allowed collections).
+**Risk Mitigation:**
+- Query timeout (5s), complexity limits, indexes, caching
+- Feature flag for rollback, backward compatibility
+- Pipeline validation before execution, fallback to simple queries
 
-Dependencies are listed in `requirements.txt` (FastAPI, Uvicorn, Motor/PyMongo, Redis, Pydantic, JWT libs, HTTPX).
-
----
-
-## Typical Request Lifecycle (`/api/v1/ask`)
-1. Frontend sends `{ query, session_id, output_format, allow_download }`.
-2. Backend derives `UserContext` from JWT or defaults to state scope.
-3. `IntelligentQueryHandler` checks if clarification is needed for vague prompts.
-4. If clear enough, query is routed via LLM or fallback router.
-5. `_repair_route(...)` enriches missing context and follow-up intent.
-6. `ToolHandler.execute(...)` runs selected tool with scope filtering.
-7. Response text is formatted (LLM or deterministic fallback).
-8. Output layer resolves requested format (`auto`/`text`/`json`/`tree`) and download intent.
-9. Frontend renders formatted output, and auto-downloads when download content is returned.
-
----
-
-## Recent Behavior Updates
-- Removed Settings UI from `chatbot.html`.
-- Added clarification fallback for vague prompts.
-- Improved rank-search robustness (phrase extraction + alias/shortcode/partial resolution).
-- Fixed hierarchy text symbols to plain ASCII bullets.
-- Improved district hierarchy root detection for datasets where root nodes are not null-parent.
-
----
-
-## Notes
-- Conversation memory is in-process only. Restarting the server resets chat context.
-- Redis caching and rate limiting are optional and active only when `REDIS_URL` is set.
-- If no LLM API key is configured, `/api/v1/ask` still works using rule-based fallback.
+**Success Metrics:**
+- Query response time within SLA targets
+- Error rate < 0.1%, pipeline success > 99.9%, test coverage > 80%
+- Fewer follow-up queries, higher MCP endpoint adoption
