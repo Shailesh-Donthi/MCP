@@ -5,10 +5,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 30.57,
+    "duration_s": 67.07,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "The system contains **54** Sub‑Inspectors (rank short code “SI”). Their IDs, names and department IDs are listed in the query result above. All of them belong to the department with ID \"693914d3df665309d24dba3f\"."
+    "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
   },
   {
     "name": "list_all_SPs",
@@ -16,10 +16,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 27.18,
+    "duration_s": 8.67,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "The query returned 27 Superintendents of Police (rank short code “SP”). Their IDs, names, badge numbers (if any) and department are:\n\n1. ID: 697a5df95a30426524f22597, Name: user LXVI, Badge: none\n2. ID: 697a5deb4358b5725b2cc47b, Name: user CCXLIII, Badge: 3001\n3. ID: 697a5e0b2dd29524223466ad, Name: user MCCCLII, Badge: 5017\n4. ID: 697a5e1ae42b3a09ea0c8568, Name: user MMCDI, Badge: 9900\n5. ID: 69921698df58fa8549096619, Name: user MMMCXXXV, Badge: none\n6. ID: 69921698df58fa8549096620, Name: user MMMCXLII, Badge: none\n7. ID: 69921698df58fa8549096624, Name: user MMMCXLVI, Badge: none\n8. ID: 69921698df58fa8549096629, Name: user MMMCLI, Badge: 9013\n9. ID: 69921698df58fa8549096631, Name: user MMMCLVIII, Badge: 9001\n10. ID: 69921698df58fa854909663b, Name: user MMMCLXII, Badge: none\n11. ID: 69921698df58fa8549096640, Name: user MMMCLXVII, Badge: 9\n12. ID: 69921698df58fa8549096644, Name: user MMMCLXXI, Badge: 3437\n13. ID: 69921698df58fa8549096651, Name: user MMMCLXXXIV, Badge: 2001\n14. ID: 69921699df58fa8549096659, Name: user MMMCXC, Badge: none\n15. ID: 69921699df58fa854909665c, Name: user MMMCXCIII, Badge: 4033\n16. ID: 69921699df58fa8549096660, Name: user MMMCXCVII, Badge: none\n17. ID: 69921699df58fa854909666a, Name: user MMMCCVII, Badge: none\n18. ID: 69921699df58fa8549096672, Name: user MMMCCXV, Badge: 5000\n19. ID: 69921699df58fa8549096677, Name: user MMMCCXX, Badge: none\n20. ID: 69921699df58fa854909667b, Name: user MMMCCXXIV, Badge: none\n21. ID: 69921699df58fa8549096681, Name: user MMMCCXXX, Badge: 4499\n22. ID: 69921699df58fa854909668a, Name: user MMMCCXXXVII, Badge: 20132902\n23. ID: 69921699df58fa854909668e, Name: user MMMCCXLI, Badge: 20161607\n24. ID: 69921699df58fa8549096695, Name: user MMMCCXLVIII, Badge: 7005\n25. ID: 69921699df58fa854909669b, Name: user MMMCCLIV, Badge: 1600\n26. ID: 699ee4e53ee866d0fbf32b3b, Name: user MMMCCLXXI, Badge: none\n27. ID: 699fdd043ee866d0fbf3318e, Name: user MMMCCLXXII, Badge: none\n\nAll of them belong to the \"Law & Order Wing\" department."
+    "response": "Here are the Superintendents of Police in the system (27 records):\n1. user LXVI (badge: N/A)\n2. user CCXLIII (badge: 3001)\n3. user MCCCLII (badge: 5017)\n4. user MMCDI (badge: 9900)\n5. user MMMCXXXV (badge: N/A)\n6. user MMMCXLII (badge: N/A)\n7. user MMMCXLVI (badge: N/A)\n8. user MMMCLI (badge: 9013)\n9. user MMMCLVIII (badge: 9001)\n10. user MMMCLXII (badge: N/A)\n11. user MMMCLXVII (badge: 9)\n12. user MMMCLXXI (badge: 3437)\n13. user MMMCLXXXIV (badge: 2001)\n14. user MMMCXC (badge: N/A)\n15. user MMMCXCIII (badge: 4033)\n16. user MMMCXCVII (badge: N/A)\n17. user MMMCCVII (badge: N/A)\n18. user MMMCCXV (badge: 5000)\n19. user MMMCCXX (badge: N/A)\n20. user MMMCCXXIV (badge: N/A)\n21. user MMMCCXXX (badge: 4499)\n22. user MMMCCXXXVII (badge: 20132902)\n23. user MMMCCXLI (badge: 20161607)\n24. user MMMCCXLVIII (badge: 7005)\n25. user MMMCCLIV (badge: 1600)\n26. user MMMCCLXXI (badge: N/A)\n27. user MMMCCLXXII (badge: N/A)\nAll entries have the rank \"Superintendent of Police\" and belong to the same department."
   },
   {
     "name": "count_personnel_by_rank",
@@ -27,10 +27,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 5.52,
+    "duration_s": 8.4,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "The personnel count per rank is:\n- CPRO: 1\n- SOA: 2\n- IGP: 5\n- Inspector: 31\n- PC: 1,887\n- ASI: 274\n- PSI: 11\n- JOA: 12\n- HC: 705\n- SI: 189\n- CI: 87\n- DSP: 17\n- RPSI: 1\n- OS: 1\n- SP: 27\n- DGP: 1\n- AO: 1\n- DIG: 1\n- OSD: 1\n- ADGP: 2\n- WPSI: 3\n- HG: 2\n- RSI: 1\n- ADDL SP: 5"
+    "response": "The personnel distribution by rank is as follows:\n- OSD (Officer on Special Duty): 1\n- SOA (Senior Office Assistant): 2\n- HC (Head Constable): 705\n- ASI (Assistant SubInspector): 274\n- DSP (Deputy Superintendent of Police): 17\n- Inspector: 31\n- PC (Police Constable): 1,887\n- PSI (Police Sub Inspector): 11\n- IGP (Inspector General of Police): 5\n- DGP (Director General of Police): 1\n- RPSI (Reserve Police Sub Inspector): 1\n- JOA (Junior Office Assistant): 12\n- SP (Superintendent of Police): 27\n- OS (Office Superintendent): 1\n- AO (Administrative Officer): 1\n- SI (Sub Inspector): 189\n- CI (Circle Inspector): 87\n- ADDL SP (Additional Superintendent of Police): 5\n- DIG (Deputy Inspector General of Police): 1\n- HG (Home Guard): 2\n- RSI (Reserved SubInspector): 1\n- ADGP (Additional Director General of Police): 2\n- WPSI (Woman Police Sub Inspector): 3\n- CPRO (Chief Public Relations Officer): 1\n\nIn total, there are 24 distinct rank categories represented."
   },
   {
     "name": "personnel_in_district",
@@ -38,23 +38,21 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 6.51,
+    "duration_s": 28.33,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "There are 1,419 personnel currently assigned to units in the Guntur district."
+    "response": "There are 1,416 personnel assigned to units in Guntur district."
   },
   {
     "name": "sp_of_guntur",
     "query": "Who is the SP of Guntur?",
-    "passed": false,
-    "failures": [
-      "Expected one of ['Superintendent', 'SP', 'Guntur'] in response"
-    ],
+    "passed": true,
+    "failures": [],
     "status_code": 200,
-    "duration_s": 7.16,
+    "duration_s": 7.82,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+    "response": "The Superintendent of Police (SP) postings in Guntur district are:\n1. user LXVI (badge number not available) – assigned to Guntur DPO.\n2. user CCXLIII (badge number 3001) – assigned to Technical Services.\n3. user MMMCCLXXII (badge number not available) – also assigned to Technical Services.\nThese are the SPs currently listed for Guntur in the system."
   },
   {
     "name": "officers_in_chittoor",
@@ -62,10 +60,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 8.34,
+    "duration_s": 11.09,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "There are currently no active personnel postings found for the Chittoor district in the system."
+    "response": "No officers are currently posted in Chittoor district."
   },
   {
     "name": "unit_hierarchy",
@@ -73,10 +71,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 22.3,
+    "duration_s": 10.86,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "There is currently no officer with the rank of SP (Superintendent of Police) posted in any unit of the Chittoor district in the system."
+    "response": "The unit hierarchy for the Chittoor district is as follows:\n\n- **IG Rayalseema Region (LO-REO-CTR-RRE)** – reports to Addl DGP LO\n  - **DIG Ananthapur** – reports to IG Rayalseema Region\n    - **Chittoor DPO** – reports to DIG Ananthapur\n      - **Chittoor SDPO** – reports to Chittoor DPO\n        - **Chittoor Rural West Circle** (with UPS/PS such as Yadamari PS, Thavanampalle PS, Kanipakam PS, etc.)\n        - **Chittoor Rural East Circle** (with UPS/PS such as Chittoor Taluk PS, Penumur PS, Narsingarayanipet PS, etc.)\n        - **Chittoor Traffic Urban Circle** (with UPS/PS such as Chittoor Traffic UPS, Chittoor I Town UPS, Chittoor II Town UPS, etc.)\n        - **Chittoor I Town UPS**, **Chittoor II Town UPS**, **G.D.Nellore UPS**, **Bangarupalem UPS**, **Gangavaram UPS**, etc.\n        - **Chittoor Mahila Urban SDPO** and **Mahila UPS, Chittoor**\n        - **CCS Chittoor UPS**, **PCR, Chittoor**, **DCRB, Chittoor**, **DTC, Chittoor**, **SB, Chittoor**, **DTRB, Chittoor**\n      - **Nagari SDPO** – reports to Chittoor DPO\n        - **Nagari UPS**, **Nagari Rural Circle**, **K.Nagar Circle** (with PS such as K. Nagar PS, S.R.Puram PS, Vedurukuppam PS, etc.)\n      - **Kuppam SDPO** – reports to Chittoor DPO\n        - **Kuppam UPS**, **Kuppam Rural Circle** (with PS such as Ramakuppam PS, Rallabudugur PS, etc.)\n      - **Palamaner SDPO** – reports to Chittoor DPO\n        - **Palamaner UPS**, **Palamaner Rural Circle** (with PS such as Panjani PS, etc.)\n\nIn summary, the hierarchy starts with the IG Rayalseema Region, followed by the DIG Ananthapur, then the Chittoor DPO. Under the DPO are several SDPOs (Chittoor, Nagari, Kuppam, Palamaner), each overseeing circles, UPS (Urban Police Stations), and individual police stations (PS) as listed above."
   },
   {
     "name": "personnel_at_unit",
@@ -84,10 +82,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 12.77,
+    "duration_s": 14.31,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "There are currently no active officers posted at Guntur Urban Police Station in the system."
+    "response": "The current posting at **Guntur Urban Police Station** includes the following officers (name – rank):\n- user CLXXXIII – Sub Inspector (SI)\n- user CXXIX – Assistant SubInspector (ASI)\n- user CCCLXXIII – Assistant SubInspector (ASI)\n- user CXXX – Assistant SubInspector (ASI)\n- user CCCLXXIV – Assistant SubInspector (ASI)\n- user CDXXI – Head Constable (HC)\n- user CDXXII – Head Constable (HC)\n- user CLXXXV – Police Constable (PC)\n- user CCCLXXVIII – Police Constable (PC)\n- user CDXXIX – Police Constable (PC)\n- user CLXXXVIII – Police Constable (PC)\n- user CXXXV – Police Constable (PC)\n- user CXCII – Police Constable (PC)\n- user III – Additional Superintendent of Police (ADDL SP)\n- user CLXXXII – Circle Inspector (CI)\n- user CLXXXIV – Head Constable (HC)\n- user CXXXII – Head Constable (HC)\n- user CDXXVI – Police Constable (PC)\n- user CLXXXVI – Police Constable (PC)\n- user CCCLXXVII – Police Constable (PC)\n- user CDXXVIII – Police Constable (PC)\n- user CCCLXXVIII – Police Constable (PC)\n- user CDXXXII – Police Constable (PC)\n- user CXCI – Police Constable (PC)\n- user IV – Additional Superintendent of Police (ADDL SP)\n- user CXXVII – Sub Inspector (SI)\n- user CCCLXXII – Assistant SubInspector (ASI)\n- user CDXXIV – Head Constable (HC)\n- user CDXXV – Head Constable (HC)\n- user CCCLXXVI – Police Constable (PC)\n- user CDXXVII – Police Constable (PC)\n- user CXXXIV – Police Constable (PC)\n- user CLXXXVII – Police Constable (PC)\n- user CDXXX – Police Constable (PC)\n- user CCCLXXIX – Police Constable (PC)\n- user CDXXXI – Police Constable (PC)\n- user CCCLXXXI – Police Constable (PC)\n- user LXVI – Superintendent of Police (SP)\n- user CCCLXXI – Assistant SubInspector (ASI)\n- user CXXVIII – Assistant SubInspector (ASI)\n- user CDXX – Head Constable (HC)\n- user CCCLXXV – Head Constable (HC)\n- user CXXXI – Head Constable (HC)\n- user CDXXIII – Head Constable (HC)\n- user CXXXIII – Head Constable (HC)\n- user CXXXVII – Deputy Superintendent of Police (DSP)\n- user CDXXXVI – Head Constable (HC)\n- user DCCXC – Assistant SubInspector (ASI)\n- user DCXI – Assistant SubInspector (ASI)\n- user DCCCXLII – Assistant SubInspector (ASI)\n- user DCIV – Police Constable (PC)\n- user DCCCLX – Police Constable (PC)\n- user DCVI – Police Constable (PC)\n- user DCVII – Police Constable (PC)\n- user DCCCLXIII – Police Constable (PC)\n- user DCCCL – Police Constable (PC)\n- user DCCCLXIV – Police Constable (PC)\n- user DCCCLXV – Police Constable (PC)\n- user DCCCLXXX – Circle Inspector (CI)\n- user DCXXXVII – Assistant SubInspector (ASI)\n- user CMXXX – Head Constable (HC)\n- user DCCI – Police Constable (PC)\n- user DCCII – Police Constable (PC)\n- user DC – Circle Inspector (CI)\n- user DCCCXL – Assistant SubInspector (ASI)\n- user DCCCXLI – Assistant SubInspector (ASI)\n- user DCII – Head Constable (HC)\n- user DCXV – Head Constable (HC)\n- user DCCCLVI – Head Constable (HC)\n- user DCCCXLIV – Head Constable (HC)\n- user DCCCXLVIII – Police Constable (PC)\n- user DCVIII – Police Constable (PC)\n- user DCCCLI – Police Constable (PC)\n- user DCXVII – Police Constable (PC)\n- user DCCCLII – Police Constable (PC)\n- user DCLXXXI – Police Constable (PC)\n- user DCXVIII – Police Constable (PC)\n- user DCCLXXXVIII – Sub Inspector (SI)\n- user DCI – Sub Inspector (SI)\n- user DCCCXXXIX – Sub Inspector (SI)\n- user DCX – Assistant SubInspector (ASI)\n- user DCXII – Assistant SubInspector (ASI)\n- user DCCCXLIII – Head Constable (HC)\n- user DCCCXLV – Head Constable (HC)\n- user DCIII – Head Constable (HC)\n- user DCCCXLVI – Police Constable (PC)\n- user DCCCLVIII – Police Constable (PC)\n- user DCCCLIX – Police Constable (PC)\n... (and many more similar entries)."
   },
   {
     "name": "rank_and_unit_join",
@@ -95,10 +93,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 12.35,
+    "duration_s": 27.9,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "Here are all Inspectors and their current posting units:\n\n- user CCCV (Badge: N/A) – Technical Services\n- user MMCXXXV (Badge: 5799) – Palamaner UPS\n- user MMDLX (Badge: 5526) – Kalikiri PS\n- user MMMCXXXVI (Badge: 9293) – Kurnool DPO\n- user MMMCXXXVII (Badge: 9663) – Kurnool DPO\n- user MMMCXLVII (Badge: 3394) – Anakapalli DPO\n- user MMMCLII (Badge: 7196) – Ananthapuram DPO\n- user MMMCLIII (Badge: 7215) – Ananthapuram DPO\n- user MMMCLIV (Badge: 7207) – Ananthapuram DPO\n- user MMMCLIX (Badge: 9055) – Alluri Sitharama Raju DPO\n- user MMMCLXVIII (Badge: 204) – East Godavari DPO\n- user MMMCLXXII (Badge: 3379) – Eluru DPO\n- user MMMCLXXIII (Badge: 3254) – Eluru DPO\n- user MMMCLXXXVIII (Badge: 9675) – Guntur DPO\n- user MMMCXCI (Badge: 5556) – YSR Kadapa DPO\n- user MMMCXCIV (Badge: 386) – Kakinada DPO\n- user MMMCXCV (Badge: 53) – Kakinada DPO\n- user MMMCXCIX (Badge: 4116) – Krishna DPO\n- user MMMCCXVII (Badge: 4338) – Sri Potti Sriramulu Nellore DPO\n- user MMMCCXXI (Badge: 9692) – Palnadu DPO\n- user MMMCCXXXI (Badge: 3337) – West Godavari DPO\n- user MMMCCXXXVIII (Badge: 4141) – Vizianagaram DPO\n- user MMMCCXLII (Badge: CI-7242) – Sri Sathya Sai DPO\n- user MMMCCXLVI (Badge: 13) – NTR CPO\n- user MMMCCXLIX (Badge: 3488) – Prakasam DPO\n- user MMMCCL (Badge: 3475) – Prakasam DPO\n- user MMMCCLV (Badge: 1779) – Srikakulam DPO\n- user MMMCCLVI (Badge: 1668) – Srikakulam DPO\n- user MMMCCLX (Badge: 983) – Visakhapatnam CPO\n- user MMMCCLXIII (Badge: CI-10) – Parvathipuram Manyam DPO"
+    "response": "Here are the Inspectors and their current posting units:\n\n- user MMDLX (Badge No: 5526) – Kalikiri PS\n- user MMCXXXV (Badge No: 5799) – Palamaner UPS\n- user CCCV (Badge No: N/A) – Technical Services\n- user MMMCXXXVI (Badge No: 9293) – Kurnool DPO\n- user MMMCLII (Badge No: 7196) – Ananthapuram DPO\n- user MMMCLIII (Badge No: 7215) – Ananthapuram DPO\n- user MMMCLXXII (Badge No: 3379) – Eluru DPO\n- user MMMCLXXIII (Badge No: 3254) – Eluru DPO\n- user MMMCXCV (Badge No: 53) – Kakinada DPO\n- user MMMCCXVII (Badge No: 4338) – Sri Potti Sriramulu Nellore DPO\n- user MMMCCXXXI (Badge No: 3337) – West Godavari DPO\n- user MMMCCXLVI (Badge No: 13) – NTR CPO\n- user MMMCCXLIX (Badge No: 3488) – Prakasam DPO\n- user MMMCCLV (Badge No: 1779) – Srikakulam DPO\n- user MMMCLIV (Badge No: 7207) – Ananthapuram DPO\n- user MMMCLIX (Badge No: 9055) – Alluri Sitharama Raju DPO\n- user MMMCLXXXVIII (Badge No: 9675) – Guntur DPO\n- user MMMCXXXVII (Badge No: 9663) – Kurnool DPO\n- user MMMCXLVII (Badge No: 3394) – Anakapalli DPO\n- user MMMCLXVIII (Badge No: 204) – East Godavari DPO\n- user MMMCXCI (Badge No: 5556) – YSR Kadapa DPO\n- user MMMCXCIV (Badge No: 386) – Kakinada DPO\n- user MMMCXCIX (Badge No: 4116) – Krishna DPO\n- user MMMCCXXI (Badge No: 9692) – Palnadu DPO\n- user MMMCCLX (Badge No: 983) – Visakhapatnam CPO\n- user MMMCCXXXVIII (Badge No: 4141) – Vizianagaram DPO\n- user MMMCCXLII (Badge No: CI-7242) – Sri Sathya Sai DPO\n- user MMMCCL (Badge No: 3475) – Prakasam DPO\n- user MMMCCLXIII (Badge No: CI-10) – Parvathipuram Manyam DPO\n- user MMMCCLVI (Badge No: 1668) – Srikakulam DPO\n\nA total of 30 Inspectors are listed."
   },
   {
     "name": "recent_transfers",
@@ -106,10 +104,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 5.61,
+    "duration_s": 7.45,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "No recent transfers were found in the last 30 days."
+    "response": "No transfer records were found in the system for the last 30 days."
   },
   {
     "name": "personnel_distribution",
@@ -117,10 +115,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 5.86,
+    "duration_s": 8.16,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "Personnel distribution by rank:\n- PC: 1,887\n- HC: 705\n- ASI: 274\n- SI: 189\n- Inspector: 31\n- SP: 27\n- DSP: 17\n- CI: 87\n- PSI: 11\n- DGP: 1\n- IG: 5\n- ADDL SP: 5\n- ADGP: 2\n- HG: 2\n- WPSI: 3\n- SOA: 2\n- OS: 1\n- RPSI: 1\n- RSI: 1\n- CPRO: 1\n- OSD: 1\n- JOA: 12\n- AO: 1\n- DIG: 1\n- Others (including any not listed): 0"
+    "response": "Here is the personnel distribution by rank:\n- Police Constable (PC): 1,887\n- Head Constable (HC): 705\n- Assistant SubInspector (ASI): 274\n- Sub Inspector (SI): 189\n- Circle Inspector (CI): 87\n- Inspector (Inspector): 31\n- Police Sub Inspector (PSI): 11\n- Woman Police Sub Inspector (WPSI): 3\n- Reserve Police Sub Inspector (RPSI): 1\n- Reserved SubInspector (RSI): 1\n- Additional Superintendent of Police (ADDL SP): 5\n- Superintendent of Police (SP): 27\n- Deputy Superintendent of Police (DSP): 17\n- Deputy Inspector General of Police (DIG): 1\n- Director General of Police (DGP): 1\n- Additional Director General of Police (ADGP): 2\n- Inspector General of Police (IGP): 5\n- Chief Public Relations Officer (CPRO): 1\n- Administrative Officer (AO): 1\n- Officer on Special Duty (OSD): 1\n- Office Superintendent (OS): 1\n- Senior Office Assistant (SOA): 2\n- Junior Office Assistant (JOA): 12\n- Other ranks (e.g., HG, etc.) have minimal counts.\nOverall, the database contains personnel across 24 distinct rank codes."
   },
   {
     "name": "vacancy_report",
@@ -128,10 +126,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 2.39,
+    "duration_s": 2.4,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "The system does not contain a vacancies collection or related data, so I cannot provide a list of vacancies by rank."
+    "response": "I’m sorry, but the system does not contain a vacancy collection or data on open positions, so I can’t list vacancies by rank."
   },
   {
     "name": "search_by_name",
@@ -139,10 +137,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 10.36,
+    "duration_s": 13.42,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "No personnel record found with the name Ravi Kumar in the system."
+    "response": "No personnel named Ravi Kumar was found in the system."
   },
   {
     "name": "ambiguous_query",
@@ -150,10 +148,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 1.91,
+    "duration_s": 10.42,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "I'm sorry, but I need more specific information to determine who is in charge. Could you please specify the department, unit, or rank you are interested in?"
+    "response": "I’ve found the currently active Sub Inspector (badge No. 9652) as the highest‑rank officer on duty. Could you let me know which specific unit, district, or area you’d like to identify the in‑charge for? This will help me provide the exact person responsible for that location."
   },
   {
     "name": "nonsense_query",
@@ -161,7 +159,7 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 3.07,
+    "duration_s": 4.6,
     "route_source": "dynamic_only",
     "turns": null,
     "response": "I’m sorry, but I can’t help with that request."
@@ -169,14 +167,12 @@
   {
     "name": "missing_mappings",
     "query": "Show missing village mappings",
-    "passed": false,
-    "failures": [
-      "Expected one of ['village', 'Village', 'mapping', 'Mapping', 'unit', 'no missing', 'No missing'] in response"
-    ],
+    "passed": true,
+    "failures": [],
     "status_code": 200,
-    "duration_s": 3.8,
+    "duration_s": 22.11,
     "route_source": "dynamic_only",
     "turns": null,
-    "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+    "response": "The following units currently have no village mappings in the system: IG Rayalseema Region (Chittoor), Tenali Sub Division (Guntur), SCST cell (Guntur), DGP Office, IG Guntur Range (Guntur), 6thBn, APSP Mangalagiri (Guntur), West Sub Division (Guntur), North Sub Division (Guntur), Thulluru Sub Division (Guntur), DCRB (Guntur), PCR, Guntur (Guntur), Tadepalli Traffic PS (Guntur), PCR, Tenali (Guntur), Technical Services (Guntur), APSP Head Office (Guntur), Guntur Traffic PS (Guntur), East Sub Division (Guntur), South Sub Division (Guntur), DSB (Guntur), PGRS (Guntur), Addl DGP LO (Guntur), DIG Kurnool (Annamayya), DIG Ananthapur (Chittoor), Guntur DPO (Guntur), Guntur Mahila PS (Guntur), DTRB (Guntur), IT core (Guntur), Finger Prints Unit (Guntur), Thulluru Traffic PS (Guntur), Prathipadu Circle (Guntur), Ponnur Rural Circle (Guntur), Tenali Rural Circle (Guntur), Mangalagiri Rural Circle (Guntur), Chittoor Mahila Urban SDPO (Chittoor), Chittoor Traffic Urban Circle (Chittoor), K.Nagar Circle (Chittoor), CCS Chittoor UPS (Chittoor), Mahila UPS, Chittoor (Chittoor), Chittoor SDPO (Chittoor), PCR,Chittoor (Chittoor), Chittoor Rural West Circle (Chittoor), Kuppam Rural Circle (Chittoor), Nagari Rural Circle (Chittoor), Nagari SDPO (Chittoor), Kuppam SDPO (Chittoor), DCRB,Chittoor (Chittoor), DTC,Chittoor (Chittoor), SB,Chittoor (Chittoor), Chittoor Traffic UPS (Chittoor), Chittoor Rural East Circle (Chittoor), Chittoor DPO (Chittoor), Palamaner SDPO (Chittoor), DTRB,Chittoor (Chittoor), Kallur Circle (Chittoor), Palamaner Rural Cricle (Chittoor), Annamayya DPO (Annamayya), Voyalpadu Circle (Annamayya), Rayachoty Rural Circle (Annamayya), Lakkireddipalli Circle (Annamayya), Madanapalle SDPO (Annamayya), Rayachoty SDPO (Annamayya), Punganur Rural Circle (Annamayya), Madanapalle Rural Circle (Annamayya), Rayachoty Traffic PS (Annamayya), Kalakada Circle (Annamayya), Mulakalacheruvu Circle (Annamayya), Puthalapattu Circle Office (Chittoor), IGP, Andhra Region, DIG Eluru (Eluru), Prakasam DPO (Prakasam), West Godavari DPO (West Godavari), YSR Kadapa DPO (YSR Kadapa), NTR CPO (NTR), Visakhapatnam CPO (Visakhapatnam), DIG Visakhapatnam, Bapatla DPO (Bapatla), Palnadu DPO (Palnadu), Sri Potti Sriramulu Nellore DPO (Sri Potti Sriramulu Nellore), Parvathipuram Manyam DPO (Parvathipuram Manyam), Krishna DPO (Krishna), Kurnool DPO (Kurnool), Nandyal DPO (Nandyal), Tirupathi DPO (Tirupathi), Srikakulam DPO (Srikakulam), Vizianagaram DPO (Vizianagaram), Dr B R Ambedkar Konaseema DPO (Dr. B R Ambedkar Konaseema), etc. These units lack entries in the unit_villages_master collection, indicating missing village mappings."
   }
 ]

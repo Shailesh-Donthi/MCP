@@ -693,7 +693,7 @@ class IntelligentQueryHandler:
             dq_result = await orchestrator.run(
                 intent=clean_query,
                 context=context,
-                conversation_context=llm_context,
+                conversation_context=None,  # each query is independent — no history bleed
             )
             response_text = dq_result.get("response") or "No answer returned."
             history.append({"role": "user", "content": clean_query})

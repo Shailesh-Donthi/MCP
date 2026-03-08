@@ -178,7 +178,13 @@ async def call_openai_api(
             for attempt in range(3):
                 response = await client.post(chat_url, headers=headers, json=payload)
                 if response.status_code == 200:
-                    return _extract_content(response)
+                    content = _extract_content(response)
+                    if content:
+                        return content
+                    # Empty/null content on 200 — often Azure rate-limiting in disguise
+                    logger.warning("LLM API returned empty content on 200; retrying after 15s (attempt %d/3)", attempt + 1)
+                    await asyncio.sleep(15)
+                    continue
                 if response.status_code == 429:
                     retry_after = int(response.headers.get("retry-after", 15))
                     logger.warning("LLM API rate limited (429); retrying after %ds (attempt %d)", retry_after, attempt + 1)
@@ -195,7 +201,7 @@ async def call_openai_api(
                         return _extract_content(fallback)
                 logger.error("LLM API error: %s - %s", response.status_code, response.text[:300])
                 return None
-            logger.error("LLM API rate limit not resolved after 3 retries")
+            logger.error("LLM API rate limit / empty content not resolved after 3 retries")
             return None
     except Exception as exc:
         logger.exception("OpenAI API call failed: %s", exc)
