@@ -27,6 +27,7 @@ except Exception:  # pragma: no cover - optional dependency
     redis = None
 
 from mcp.config import mcp_settings
+from mcp.core.cache import query_cache
 from mcp.core.config import settings
 from mcp.core.database import close_mongodb_connection, connect_to_mongodb, get_database
 from mcp.core.error_catalog import build_error_payload, normalize_error_code
@@ -385,6 +386,7 @@ async def _startup() -> None:
         try:
             redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
             await redis_client.ping()
+            query_cache.init(redis_client)
             log_structured(logger, "info", "v2_redis_connected")
         except Exception as error:
             redis_client = None
@@ -401,6 +403,7 @@ async def _shutdown() -> None:
         except Exception:
             pass
         redis_client = None
+    query_cache.close()
     await close_mongodb_connection()
     log_structured(logger, "info", "v2_server_shutdown")
 

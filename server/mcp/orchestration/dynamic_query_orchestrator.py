@@ -12,6 +12,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
+from mcp.core.cache import query_cache
 from mcp.router.llm_client import call_openai_api
 from mcp.schemas.context_schema import UserContext
 from mcp.tools.dynamic_query_tool import DynamicQueryExecutor, QueryValidationError
@@ -107,8 +108,19 @@ class DynamicQueryOrchestrator:
         context: UserContext,
         conversation_context: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
+        # Check cache first
+        cached = await query_cache.get(intent)
+        if cached is not None:
+            logger.info("DynamicQuery cache HIT for: %.80s", intent)
+            cached["cache_hit"] = True
+            return cached
+
         try:
-            return await self._run(intent, context, conversation_context)
+            result = await self._run(intent, context, conversation_context)
+            # Cache successful results only
+            if result.get("success"):
+                await query_cache.set(intent, result)
+            return result
         except Exception as exc:
             logger.exception("DynamicQueryOrchestrator unhandled error: %s", exc)
             return {
