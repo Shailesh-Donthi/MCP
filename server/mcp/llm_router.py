@@ -723,6 +723,107 @@ class IntelligentQueryHandler:
             }
         # ────────────────────────────────────────────────────────────────────
 
+        # ── hybrid mode: pre-built tools first, dynamic query fallback ────
+        if mcp_settings.ROUTING_MODE == "hybrid":
+            tool_name, arguments, understood_query, confidence, route_source = await self._route(
+                clean_query, llm_context, available_tools,
+            )
+            logger.info("Hybrid router: tool=%s confidence=%.2f source=%s", tool_name, confidence, route_source)
+
+            use_prebuilt = False
+            # High-confidence match to a real pre-built tool → try fast path
+            if confidence >= 0.7 and tool_name not in ("dynamic_query", "__help__"):
+                result = await self.tool_handler.execute(tool_name, arguments, context)
+                # Check if the tool returned useful, focused data
+                result_data = result.get("data", []) if isinstance(result, dict) else result
+                has_data = bool(result_data) if isinstance(result_data, (list, dict)) else bool(result)
+                result_success = result.get("success", True) if isinstance(result, dict) else True
+                # If the tool returned too many results, it likely didn't filter properly
+                if isinstance(result_data, list) and len(result_data) > 1000:
+                    has_data = False
+
+                if has_data and result_success:
+                    use_prebuilt = True
+                    response_text = fallback_format_response(clean_query, tool_name, arguments, result)
+                    # If the formatter returned a generic "No records matched" but data exists,
+                    # fall through to dynamic query for better formatting
+                    if response_text and "no records matched" in response_text.lower() and result_data:
+                        use_prebuilt = False
+                        logger.info("Hybrid: pre-built tool %s data exists but formatter returned 'no records matched', falling through", tool_name)
+                    elif self.use_llm and tool_name not in {"search_personnel", "search_unit", "check_responsible_user", "search_assignment"}:
+                        llm_text = await llm_format_response(clean_query, tool_name, result, llm_context)
+                        if isinstance(llm_text, str) and llm_text.strip():
+                            response_text = llm_text.strip()
+                if use_prebuilt:
+                    history.append({"role": "user", "content": clean_query})
+                    history.append({"role": "assistant", "content": response_text})
+                    output_payload = build_output_payload(
+                        query=clean_query,
+                        response_text=response_text,
+                        routed_to=tool_name,
+                        arguments=arguments,
+                        result=result if isinstance(result, dict) else {"data": result},
+                        requested_format=output_format,
+                        allow_download=allow_download,
+                    )
+                    return {
+                        "success": True,
+                        "query": clean_query,
+                        "response": response_text,
+                        "routed_to": tool_name,
+                        "arguments": arguments,
+                        "extracted_arguments": arguments,
+                        "data": result_data,
+                        "route_source": f"hybrid_tool:{route_source}",
+                        "route_confidence": confidence,
+                        "understood_as": understood_query,
+                        "output": output_payload,
+                        "history_size": len(history),
+                    }
+                else:
+                    logger.info("Hybrid: pre-built tool %s returned no data, falling through to dynamic query", tool_name)
+
+            # Low confidence, no matching tool, or empty result → dynamic query fallback
+            if not use_prebuilt:
+                from mcp.core.database import get_database
+                from mcp.orchestration.dynamic_query_orchestrator import DynamicQueryOrchestrator
+                from mcp.tools.dynamic_query_tool import DynamicQueryExecutor
+
+                db = get_database()
+                orchestrator = DynamicQueryOrchestrator(DynamicQueryExecutor(db))
+                dq_result = await orchestrator.run(
+                    intent=clean_query,
+                    context=context,
+                    conversation_context=None,
+                )
+                response_text = dq_result.get("response") or "No answer returned."
+                history.append({"role": "user", "content": clean_query})
+                history.append({"role": "assistant", "content": response_text})
+                output_payload = build_output_payload(
+                    query=clean_query,
+                    response_text=response_text,
+                    routed_to="dynamic_query",
+                    arguments={},
+                    result=dq_result,
+                    requested_format=output_format,
+                    allow_download=allow_download,
+                )
+                return {
+                    "success": dq_result.get("success", True),
+                    "query": clean_query,
+                    "response": response_text,
+                    "routed_to": "dynamic_query",
+                    "arguments": {},
+                    "extracted_arguments": {},
+                    "data": dq_result.get("data", {}),
+                    "route_source": "hybrid_dynamic",
+                    "route_confidence": confidence,
+                    "understood_as": clean_query,
+                    "output": output_payload,
+                    "history_size": len(history),
+                }
+        # ────────────────────────────────────────────────────────────────────
+
         # Backward-compatible multi-step chain support used by unit tests.
         chain_parts = self._split_complex_query_chain(clean_query)
         if chain_parts:

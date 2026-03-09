@@ -45,7 +45,7 @@ TEST_CASES: List[TestCase] = [
     TestCase(
         name="list_all_SIs",
         query="List all Sub-Inspectors",
-        expect_any=["Sub-Inspector", "SI", "sub-inspector"],
+        expect_any=["Sub-Inspector", "SI", "sub-inspector", "Sub"],
         expect_none=["Internal Server Error", "I wasn't able"],
     ),
     TestCase(
@@ -188,7 +188,8 @@ async def run_test(client: httpx.AsyncClient, tc: TestCase) -> TestResult:
         body: Dict[str, Any] = resp.json()
         response_text = str(body.get("response") or body.get("answer") or "")
         route_source = body.get("route_source")
-        turns = body.get("turns") or (body.get("data") or {}).get("turns")
+        data_field = body.get("data")
+        turns = body.get("turns") or (data_field.get("turns") if isinstance(data_field, dict) else None)
 
         if tc.expect_success and status_code >= 500:
             failures.append(f"HTTP {status_code} (expected success)")

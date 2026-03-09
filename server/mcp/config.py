@@ -28,6 +28,7 @@ class MCPSettings(BaseSettings):
     # Routing mode:
     #   "mixed"        — LLM/heuristic tool router + dynamic_query fallback (default)
     #   "dynamic_only" — skip all tools; every query goes to DynamicQueryOrchestrator
+    #   "hybrid"       — try pre-built tools first (confidence >= 0.7); fall back to dynamic query
     ROUTING_MODE: str = "mixed"
 
     # Allowed collections for queries (whitelist)
