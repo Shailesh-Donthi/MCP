@@ -82,7 +82,7 @@ mandal_master.districtId→district_master._id
 
 ## Rules
 1. Always add "isDelete":false to filters. ONLY add "isActive":true on assignment_master (for current postings). Do NOT filter by isActive on personnel_master — most personnel have isActive=false but are still valid records.
-2. Use $lookup in aggregate for cross-collection joins — never multiple sequential finds.
+2. Use $lookup in aggregate for cross-collection joins — never multiple sequential finds. ALWAYS use aggregate with $lookup to resolve foreign key IDs to human-readable names before calling "done".
 3. For rank queries: $lookup rank_master on rankId, then filter by rank.shortCode or rank.name.
 4. For district queries: use a SINGLE aggregate on assignment_master with $lookup unit_master (on unitId), $match unit's districtId, then $lookup personnel_master (on userId). This avoids multiple round-trips.
 5. For missing mappings: $lookup unit_villages_master on unitId, $match villages size==0.
@@ -93,6 +93,7 @@ mandal_master.districtId→district_master._id
 10. If the query is unrelated to police personnel, call done immediately with a polite note.
 11. If data is absent, say so clearly (e.g. "No vacancy data found in the system").
 12. When the user asks to "list all" or "show all", return individual records with names/details — do NOT return counts or group-by summaries unless explicitly asked for counts. Use a $limit of 500. Do NOT use small limits like 10 or 50 for listing queries. For $count/$group queries, omit $limit entirely so all records are counted.
+13. NEVER include raw ObjectIDs (24-character hex strings) in your final "done" answer. Always resolve ALL foreign keys to their actual names using $lookup BEFORE answering. For personnel queries, always $lookup: rankId→rank_master.name, departmentId→department_master.name, and via assignment_master: unitId→unit_master.name, unit_master.districtId→district_master.name, designationId→designation_master.name. If a name cannot be resolved, omit the field — do NOT show the raw ID.
 """
 
 

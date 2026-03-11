@@ -426,6 +426,26 @@ class SearchPersonnelTool(BaseTool):
             "name": rank_obj.get("name") or normalized.get("rankName"),
             "shortCode": rank_obj.get("shortCode") or rank_obj.get("short_code") or normalized.get("rankShortCode"),
         }
+        # Flatten nested enrichment objects in assignments so the formatter
+        # can access unitName, districtName, designationName directly.
+        assignments = normalized.get("assignments")
+        if isinstance(assignments, list):
+            flat_assignments = []
+            for a in assignments:
+                if not isinstance(a, dict):
+                    continue
+                a = dict(a)
+                unit = a.get("unit")
+                if isinstance(unit, dict):
+                    a["unitName"] = unit.get("name") or a.get("unitName") or ""
+                    district = unit.get("district")
+                    if isinstance(district, dict):
+                        a["districtName"] = district.get("name") or a.get("districtName") or ""
+                designation = a.get("designation")
+                if isinstance(designation, dict):
+                    a["designationName"] = designation.get("name") or a.get("designationName") or ""
+                flat_assignments.append(a)
+            normalized["assignments"] = flat_assignments
         return normalized
 
     def _non_empty_params(self, params: Dict[str, Optional[str]]) -> Dict[str, str]:
