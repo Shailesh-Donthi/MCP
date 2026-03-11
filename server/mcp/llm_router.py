@@ -497,6 +497,38 @@ class IntelligentQueryHandler:
         return _default_available_tools()
 
     @staticmethod
+    def _is_detail_followup(query: str) -> bool:
+        """Detect follow-up queries asking for more info about previous results.
+
+        Matches: "give me their info", "show details", "more about them",
+        "tell me about them", "their details", "full info", etc.
+        """
+        q = str(query or "").lower().strip()
+        return bool(re.search(
+            r"\b(?:their|them|his|her|those|these)\b.*\b(?:info|detail|profile|data|record|contact|phone|email|mobile)\b"
+            r"|\b(?:info|detail|profile|full|more|all)\b.*\b(?:about|of|for)\b.*\b(?:them|their|those|these|him|her)\b"
+            r"|\b(?:give|show|get|tell|list)\b.*\b(?:all|full|more|complete)\b.*\b(?:info|detail)\b"
+            r"|\b(?:more|full|complete|all)\s+(?:info|detail|profile|record)s?\b",
+            q,
+        ))
+
+    @staticmethod
+    def _extract_user_ids_from_result(result: Any) -> List[str]:
+        """Extract userId values from a tool result's data field."""
+        if not isinstance(result, dict):
+            return []
+        data = result.get("data", [])
+        if not isinstance(data, list):
+            return []
+        user_ids = []
+        for row in data:
+            if isinstance(row, dict):
+                uid = str(row.get("userId") or row.get("user_id") or row.get("_id") or "").strip()
+                if uid:
+                    user_ids.append(uid)
+        return user_ids[:20]  # cap to avoid huge batch lookups
+
+    @staticmethod
     def _is_attribute_only_followup(query: str) -> bool:
         q = str(query or "").lower()
         return bool(
@@ -725,6 +757,55 @@ class IntelligentQueryHandler:
 
         # ── hybrid mode: pre-built tools first, dynamic query fallback ────
         if mcp_settings.ROUTING_MODE == "hybrid":
+            # ── Follow-up detection: resolve pronouns from previous results ──
+            if self._is_detail_followup(clean_query) and state.get("last_result"):
+                user_ids = self._extract_user_ids_from_result(state["last_result"])
+                if user_ids:
+                    logger.info("Hybrid follow-up: resolving %d user IDs from previous result", len(user_ids))
+                    all_results: List[Dict[str, Any]] = []
+                    for uid in user_ids:
+                        person = await self.tool_handler.execute("search_personnel", {"user_id": uid}, context)
+                        if isinstance(person, dict) and person.get("data"):
+                            pdata = person["data"]
+                            if isinstance(pdata, list):
+                                all_results.extend(pdata)
+                            elif isinstance(pdata, dict):
+                                all_results.append(pdata)
+                    if all_results:
+                        combined_result = {"success": True, "data": all_results}
+                        response_text = fallback_format_response(clean_query, "search_personnel", {}, combined_result)
+                        if self.use_llm:
+                            llm_text = await llm_format_response(clean_query, "search_personnel", combined_result, llm_context)
+                            if isinstance(llm_text, str) and llm_text.strip():
+                                response_text = llm_text.strip()
+                        history.append({"role": "user", "content": clean_query})
+                        history.append({"role": "assistant", "content": response_text})
+                        state["last_tool"] = "search_personnel"
+                        state["last_result"] = combined_result
+                        output_payload = build_output_payload(
+                            query=clean_query,
+                            response_text=response_text,
+                            routed_to="search_personnel",
+                            arguments={},
+                            result=combined_result,
+                            requested_format=output_format,
+                            allow_download=allow_download,
+                        )
+                        return {
+                            "success": True,
+                            "query": clean_query,
+                            "response": response_text,
+                            "routed_to": "search_personnel",
+                            "arguments": {},
+                            "extracted_arguments": {},
+                            "data": all_results,
+                            "route_source": "hybrid_followup",
+                            "route_confidence": 0.95,
+                            "understood_as": clean_query,
+                            "output": output_payload,
+                            "history_size": len(history),
+                        }
+
             tool_name, arguments, understood_query, confidence, route_source = await self._route(
                 clean_query, llm_context, available_tools,
             )
@@ -757,6 +838,10 @@ class IntelligentQueryHandler:
                 if use_prebuilt:
                     history.append({"role": "user", "content": clean_query})
                     history.append({"role": "assistant", "content": response_text})
+                    # Save state for follow-up queries
+                    state["last_tool"] = tool_name
+                    state["last_arguments"] = dict(arguments or {})
+                    state["last_result"] = result if isinstance(result, dict) else {"data": result}
                     output_payload = build_output_payload(
                         query=clean_query,
                         response_text=response_text,
@@ -799,6 +884,9 @@ class IntelligentQueryHandler:
                 response_text = dq_result.get("response") or "No answer returned."
                 history.append({"role": "user", "content": clean_query})
                 history.append({"role": "assistant", "content": response_text})
+                state["last_tool"] = "dynamic_query"
+                state["last_arguments"] = {}
+                state["last_result"] = dq_result
                 output_payload = build_output_payload(
                     query=clean_query,
                     response_text=response_text,
