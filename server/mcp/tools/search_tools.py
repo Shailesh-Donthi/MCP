@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any, Dict, List, Optional
 
@@ -72,10 +73,14 @@ class SearchPersonnelTool(BaseTool):
             )
 
         designation_filter_text = self._normalize_label(designation_name)
-        designation_id = await self._resolve_designation_id(designation_name)
+
+        # Resolve designation and district in parallel (independent lookups)
+        designation_id, district_id = await asyncio.gather(
+            self._resolve_designation_id(designation_name),
+            self._resolve_district_id(district_name),
+        )
         designation_resolution = "resolved" if designation_id is not None else ("unresolved" if designation_name else None)
 
-        district_id = await self._resolve_district_id(district_name)
         if district_name and district_id is None:
             return self.format_error_response(
                 "NOT_FOUND",

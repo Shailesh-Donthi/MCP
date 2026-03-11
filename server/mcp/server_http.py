@@ -33,7 +33,7 @@ from mcp.core.database import close_mongodb_connection, connect_to_mongodb, get_
 from mcp.core.error_catalog import build_error_payload, normalize_error_code
 from mcp.core.logging_config import configure_logging, log_structured
 from mcp.core.security import decode_access_token
-from mcp.router.llm_client import has_llm_api_key
+from mcp.router.llm_client import close_shared_client, has_llm_api_key
 from mcp.schemas.context_schema import UserContext
 from mcp.utils.output_layer import build_output_payload
 from mcp.handlers import get_tool_handler
@@ -404,6 +404,7 @@ async def _shutdown() -> None:
             pass
         redis_client = None
     query_cache.close()
+    await close_shared_client()
     await close_mongodb_connection()
     log_structured(logger, "info", "v2_server_shutdown")
 

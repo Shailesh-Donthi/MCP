@@ -4,9 +4,11 @@ Vacancy Analysis Tools for MCP
 Tools for analyzing staffing and vacancies across units and ranks.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
-from bson import ObjectId
+import asyncio
 import re
+from typing import Any, Dict, List, Optional, Tuple
+
+from bson import ObjectId
 
 from mcp.tools.base_tool import BaseTool
 from mcp.schemas.context_schema import UserContext
@@ -465,10 +467,10 @@ class GetPersonnelDistributionTool(BaseTool):
         seen_ids: set[str] = set()
         all_names = await self.db[Collections.DISTRICT].distinct("name", {"isDelete": False})
 
-        for raw in district_names:
+        async def _resolve_one(raw: str):
             probe = normalize_common_entity_aliases(raw).strip()
             if not probe:
-                continue
+                return None, raw
             district = await self.db[Collections.DISTRICT].find_one(
                 {"name": {"$regex": f"^{re.escape(probe)}$", "$options": "i"}, "isDelete": False},
                 {"_id": 1, "name": 1},
@@ -486,7 +488,11 @@ class GetPersonnelDistributionTool(BaseTool):
                         {"name": {"$regex": f"^{re.escape(best)}$", "$options": "i"}, "isDelete": False},
                         {"_id": 1, "name": 1},
                     )
+            return district, raw
 
+        # Resolve all districts in parallel
+        results = await asyncio.gather(*[_resolve_one(raw) for raw in district_names])
+        for district, raw in results:
             if not district:
                 missing.append(raw)
                 continue
@@ -495,6 +501,7 @@ class GetPersonnelDistributionTool(BaseTool):
             if district_id in seen_ids:
                 continue
             seen_ids.add(district_id)
+            probe = normalize_common_entity_aliases(raw).strip()
             resolved.append({"district_id": district_id, "district_name": district.get("name", probe)})
 
         return resolved, missing
@@ -516,7 +523,7 @@ class GetPersonnelDistributionTool(BaseTool):
         combined_rank_counts: Dict[str, Dict[str, Any]] = {}
         combined_total = 0
 
-        for item in resolved:
+        async def _fetch_district_stats(item: Dict[str, str]):
             district_id = item["district_id"]
             district_name = item["district_name"]
             district_query = dict(scoped_query)
@@ -525,22 +532,23 @@ class GetPersonnelDistributionTool(BaseTool):
                 district_query["_id"] = {"$in": personnel_ids}
             else:
                 district_query["_id"] = {"$exists": False}
-
             grouped = await self._group_by_rank(district_query, district_id)
             payload = grouped.get("data", {}) if isinstance(grouped, dict) else {}
             distribution = payload.get("distribution", []) if isinstance(payload, dict) else []
             total = int(payload.get("total") or 0) if isinstance(payload, dict) else 0
+            return {
+                "districtId": district_id,
+                "districtName": district_name,
+                "distribution": distribution,
+                "total": total,
+            }
 
-            comparison.append(
-                {
-                    "districtId": district_id,
-                    "districtName": district_name,
-                    "distribution": distribution,
-                    "total": total,
-                }
-            )
-            combined_total += total
-            for row in distribution:
+        # Fetch all district stats in parallel
+        district_stats = await asyncio.gather(*[_fetch_district_stats(item) for item in resolved])
+        for entry in district_stats:
+            comparison.append(entry)
+            combined_total += entry["total"]
+            for row in entry["distribution"]:
                 if not isinstance(row, dict):
                     continue
                 rank_name = row.get("rankName") or "Unknown"

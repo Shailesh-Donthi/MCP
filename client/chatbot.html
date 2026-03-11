@@ -904,6 +904,79 @@
             font-size: 0.9rem;
         }
 
+        /* Collapsible long responses */
+        .collapsible-hidden {
+            display: none;
+        }
+
+        .collapsible-hidden.expanded {
+            display: block;
+        }
+
+        .collapse-toggle-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 8px;
+            padding: 5px 14px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            font-size: 0.82rem;
+            color: var(--secondary-color);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .collapse-toggle-btn:hover {
+            background: var(--secondary-color);
+            color: white;
+            border-color: var(--secondary-color);
+        }
+
+        /* Message actions bar */
+        .msg-actions-bar {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .msg-action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 12px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-color);
+            border-radius: 8px;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .msg-action-btn:hover {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .msg-action-btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .msg-action-btn svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+        }
+
         /* Settings Panel */
         /* Responsive */
         @media (max-width: 1024px) {
@@ -1110,7 +1183,7 @@
         </div>
     </div>
 
-    <script src="chatbot_output.js?v=4"></script>
-    <script src="chatbot_app.js?v=7"></script>
+    <script src="chatbot_output.js?v=5"></script>
+    <script src="chatbot_app.js?v=8"></script>
 </body>
 </html>

@@ -7,6 +7,8 @@
     let lastAssistantResult = null;
     const responseBubblePagers = new Map();
     let responseBubblePagerCounter = 0;
+    let collapseCounter = 0;
+    const messageDataStore = new WeakMap();
     const backendContextDesyncWarnedChats = new Set();
     const CHAT_CLIENT_ID_STORAGE_KEY = 'mcpChatClientId';
     let chatThreadsState = null;
@@ -714,12 +716,16 @@
         contentDiv.style.background = '';
         contentDiv.style.borderColor = '';
         contentDiv.style.color = '';
-        contentDiv.innerHTML = OutputLayer.formatResponse(responseText);
+        contentDiv.innerHTML = renderWithCollapsible(responseText);
 
         const hasServerPager = appendPaginationControls(apiResult, messageDiv);
         if (!hasServerPager) {
             attachResponseBubblePager(responseText, messageDiv);
         }
+
+        // Re-attach table toggle if data supports it
+        messageDataStore.delete(messageDiv);
+        attachTableToggle(messageDiv, apiResult, responseText);
 
         const timeDiv = document.createElement('div');
         timeDiv.className = 'message-time';
@@ -933,6 +939,130 @@
         scrollToBottom();
     }
 
+    // -----------------------------------------------------------------------
+    // Feature: Collapsible long responses (show first 5 records, expand rest)
+    // -----------------------------------------------------------------------
+
+    function renderWithCollapsible(rawText, maxVisible = 5) {
+        if (typeof rawText !== 'string') return OutputLayer.formatResponse(rawText);
+
+        const lines = rawText.split(/\r?\n/);
+        const recordStarts = [];
+        for (let i = 0; i < lines.length; i++) {
+            if (/^\s*\d+\.\s+/.test(lines[i])) {
+                recordStarts.push(i);
+            }
+        }
+
+        if (recordStarts.length <= maxVisible) {
+            return OutputLayer.formatResponse(rawText);
+        }
+
+        const splitLineIdx = recordStarts[maxVisible];
+        const visibleText = lines.slice(0, splitLineIdx).join('\n');
+        const hiddenText = lines.slice(splitLineIdx).join('\n');
+        const hiddenCount = recordStarts.length - maxVisible;
+
+        const collapseId = `clps_${++collapseCounter}`;
+        const visibleHtml = OutputLayer.formatResponse(visibleText);
+        const hiddenHtml = OutputLayer.formatResponse(hiddenText);
+
+        return [
+            visibleHtml,
+            `<div class="collapsible-hidden" id="${collapseId}">`,
+            hiddenHtml,
+            `</div>`,
+            `<button class="collapse-toggle-btn" data-collapse-id="${collapseId}" data-count="${hiddenCount}" onclick="toggleCollapse(this)">`,
+            `&#9662; Show ${hiddenCount} more record(s)`,
+            `</button>`,
+        ].join('\n');
+    }
+
+    function toggleCollapse(btn) {
+        const collapseId = btn.dataset.collapseId;
+        const count = btn.dataset.count;
+        const hiddenDiv = document.getElementById(collapseId);
+        if (!hiddenDiv) return;
+        const isExpanded = hiddenDiv.classList.toggle('expanded');
+        btn.innerHTML = isExpanded
+            ? '&#9652; Show less'
+            : `&#9662; Show ${count} more record(s)`;
+    }
+
+    // -----------------------------------------------------------------------
+    // Feature: Inline table view toggle
+    // -----------------------------------------------------------------------
+
+    const TABLE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>';
+    const TEXT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>';
+
+    function createTableToggleButton(messageDiv, isActive) {
+        const btn = document.createElement('button');
+        btn.className = 'msg-action-btn' + (isActive ? ' active' : '');
+        btn.innerHTML = isActive
+            ? TEXT_ICON + ' Text view'
+            : TABLE_ICON + ' Table view';
+        btn.onclick = function () { toggleTableView(messageDiv, this); };
+        return btn;
+    }
+
+    function attachTableToggle(messageDiv, apiResult, rawText) {
+        if (!apiResult || !messageDiv) return;
+
+        const tableHtml = OutputLayer.renderTableFromLast(apiResult);
+        if (!tableHtml) return;
+
+        messageDataStore.set(messageDiv, {
+            apiResult: apiResult,
+            tableHtml: tableHtml,
+            rawText: rawText,
+            isTableView: false,
+        });
+
+        const contentDiv = messageDiv.querySelector('.message-content');
+        if (!contentDiv) return;
+
+        const timeDiv = contentDiv.querySelector('.message-time');
+        const actionsBar = document.createElement('div');
+        actionsBar.className = 'msg-actions-bar';
+        actionsBar.appendChild(createTableToggleButton(messageDiv, false));
+
+        if (timeDiv) {
+            contentDiv.insertBefore(actionsBar, timeDiv);
+        } else {
+            contentDiv.appendChild(actionsBar);
+        }
+    }
+
+    function toggleTableView(messageDiv, btn) {
+        const state = messageDataStore.get(messageDiv);
+        if (!state) return;
+
+        const contentDiv = messageDiv.querySelector('.message-content');
+        if (!contentDiv) return;
+        const timeText = messageDiv.dataset.timeLabel || '';
+
+        state.isTableView = !state.isTableView;
+
+        if (state.isTableView) {
+            contentDiv.innerHTML = state.tableHtml;
+        } else {
+            contentDiv.innerHTML = renderWithCollapsible(state.rawText);
+        }
+
+        // Re-add actions bar with toggle button
+        const actionsBar = document.createElement('div');
+        actionsBar.className = 'msg-actions-bar';
+        actionsBar.appendChild(createTableToggleButton(messageDiv, state.isTableView));
+        contentDiv.appendChild(actionsBar);
+
+        // Re-add timestamp
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        timeDiv.textContent = timeText;
+        contentDiv.appendChild(timeDiv);
+    }
+
     function startPersonnelSearch() {
         hideWelcome();
         const input = document.getElementById('chat-input');
@@ -973,7 +1103,13 @@
 
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
-        contentDiv.innerHTML = useRawHtml ? content : OutputLayer.formatResponse(content);
+        if (useRawHtml) {
+            contentDiv.innerHTML = content;
+        } else if (isUser) {
+            contentDiv.innerHTML = OutputLayer.formatResponse(content);
+        } else {
+            contentDiv.innerHTML = renderWithCollapsible(content);
+        }
 
         if (options.tone === 'error') {
             contentDiv.style.background = 'var(--danger-bg)';
@@ -1203,6 +1339,7 @@
             if (!hasServerPager) {
                 attachResponseBubblePager(responseText, responseMessage);
             }
+            attachTableToggle(responseMessage, data, responseText);
             maybeWarnBackendContextDesync(data);
             if (data.output && data.output.download && data.output.download.content) {
                 OutputLayer.triggerDownload(data.output);
@@ -1246,6 +1383,7 @@
     window.sendSuggestion = sendSuggestion;
     window.sendPaginationCommand = sendPaginationCommand;
     window.changeResponseBubblePage = changeResponseBubblePage;
+    window.toggleCollapse = toggleCollapse;
     window.startPersonnelSearch = startPersonnelSearch;
     window.startNewChat = startNewChat;
     window.sendMessage = sendMessage;

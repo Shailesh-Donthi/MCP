@@ -11,6 +11,30 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Shared HTTPX client — reused across all LLM calls to avoid per-request
+# connection setup overhead.  Call close_shared_client() on shutdown.
+# ---------------------------------------------------------------------------
+_shared_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_shared_client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(
+            timeout=60.0,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _shared_client
+
+
+async def close_shared_client() -> None:
+    """Shutdown hook — call from server lifespan/shutdown."""
+    global _shared_client
+    if _shared_client is not None and not _shared_client.is_closed:
+        await _shared_client.aclose()
+        _shared_client = None
+
 
 def _read_dotenv_values() -> Dict[str, str]:
     values: Dict[str, str] = {}
@@ -174,35 +198,35 @@ async def call_openai_api(
         "messages": [{"role": "system", "content": system}, *messages],
     }
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for attempt in range(3):
-                response = await client.post(chat_url, headers=headers, json=payload)
-                if response.status_code == 200:
-                    content = _extract_content(response)
-                    if content:
-                        return content
-                    # Empty/null content on 200 — often Azure rate-limiting in disguise
-                    logger.warning("LLM API returned empty content on 200; retrying after 15s (attempt %d/3)", attempt + 1)
-                    await asyncio.sleep(15)
-                    continue
-                if response.status_code == 429:
-                    retry_after = int(response.headers.get("retry-after", 15))
-                    logger.warning("LLM API rate limited (429); retrying after %ds (attempt %d)", retry_after, attempt + 1)
-                    await asyncio.sleep(retry_after)
-                    continue
-                # Common setup issue: unsupported or unavailable model name.
-                if response.status_code in {400, 404} and openai_model != "gpt-4o-mini" and not is_azure:
-                    fallback = await client.post(
-                        chat_url,
-                        headers=headers,
-                        json={**payload, "model": "gpt-4o-mini"},
-                    )
-                    if fallback.status_code == 200:
-                        return _extract_content(fallback)
-                logger.error("LLM API error: %s - %s", response.status_code, response.text[:300])
-                return None
-            logger.error("LLM API rate limit / empty content not resolved after 3 retries")
+        client = _get_shared_client()
+        for attempt in range(3):
+            response = await client.post(chat_url, headers=headers, json=payload)
+            if response.status_code == 200:
+                content = _extract_content(response)
+                if content:
+                    return content
+                # Empty/null content on 200 — often Azure rate-limiting in disguise
+                logger.warning("LLM API returned empty content on 200; retrying after 15s (attempt %d/3)", attempt + 1)
+                await asyncio.sleep(15)
+                continue
+            if response.status_code == 429:
+                retry_after = int(response.headers.get("retry-after", 15))
+                logger.warning("LLM API rate limited (429); retrying after %ds (attempt %d)", retry_after, attempt + 1)
+                await asyncio.sleep(retry_after)
+                continue
+            # Common setup issue: unsupported or unavailable model name.
+            if response.status_code in {400, 404} and openai_model != "gpt-4o-mini" and not is_azure:
+                fallback = await client.post(
+                    chat_url,
+                    headers=headers,
+                    json={**payload, "model": "gpt-4o-mini"},
+                )
+                if fallback.status_code == 200:
+                    return _extract_content(fallback)
+            logger.error("LLM API error: %s - %s", response.status_code, response.text[:300])
             return None
+        logger.error("LLM API rate limit / empty content not resolved after 3 retries")
+        return None
     except Exception as exc:
         logger.exception("OpenAI API call failed: %s", exc)
         return None
