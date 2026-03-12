@@ -261,6 +261,112 @@
         `;
     }
 
+    // Keys to hide from table views entirely
+    const _HIDDEN_KEYS = new Set([
+        '_id', '__v', 'createdAt', 'updatedAt', 'created_at', 'updated_at',
+        'children', 'child_units', 'sub_units', 'subUnits',
+    ]);
+
+    // ObjectID ref columns → prefer resolved name column from same row
+    const _ID_REF_KEYS = {
+        district_id: 'district_name',
+        districtId: 'districtName',
+        rankId: 'rankName',
+        rank_id: 'rank_name',
+        unitId: 'unitName',
+        unit_id: 'unit_name',
+        parentId: 'parentName',
+        parent_id: 'parent_name',
+    };
+
+    // Human-readable column headers
+    const _HEADER_LABELS = {
+        districtName: 'District',
+        district_name: 'District',
+        rankName: 'Rank',
+        rank_name: 'Rank',
+        unitName: 'Unit',
+        unit_name: 'Unit',
+        unitType: 'Unit Type',
+        unit_type: 'Unit Type',
+        unitTypeName: 'Unit Type',
+        badgeNo: 'Badge No',
+        badge_no: 'Badge No',
+        personnelCount: 'Personnel Count',
+        personnel_count: 'Personnel Count',
+        totalPersonnel: 'Total Personnel',
+        total_personnel: 'Total Personnel',
+        totalUnits: 'Total Units',
+        total_units: 'Total Units',
+        mobileNo: 'Mobile',
+        mobile_no: 'Mobile',
+        firstName: 'First Name',
+        lastName: 'Last Name',
+        fullName: 'Full Name',
+        name: 'Name',
+        villageCount: 'Village Count',
+        village_count: 'Village Count',
+        count: 'Count',
+        userId: 'User ID',
+        user_id: 'User ID',
+    };
+
+    function _isObjectId(val) {
+        return typeof val === 'string' && /^[a-f0-9]{24}$/.test(val);
+    }
+
+    function _humanizeHeader(key) {
+        if (_HEADER_LABELS[key]) return _HEADER_LABELS[key];
+        // camelCase / snake_case → Title Case
+        return key
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .replace(/_/g, ' ')
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+
+    function _humanizeCell(value, key, row) {
+        if (value === null || value === undefined) return '';
+
+        // If this is an ID ref key, prefer the resolved name from same row
+        const nameKey = _ID_REF_KEYS[key];
+        if (nameKey && row[nameKey]) return String(row[nameKey]);
+
+        // Suppress raw ObjectIDs
+        if (_isObjectId(value)) return '';
+
+        // Booleans
+        if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+
+        // Arrays
+        if (Array.isArray(value)) {
+            if (value.length === 0) return '';
+            const names = value
+                .slice(0, 5)
+                .map((item) => {
+                    if (typeof item === 'string') return _isObjectId(item) ? null : item;
+                    if (item && typeof item === 'object') return item.name || item.unitName || item.districtName || null;
+                    return String(item);
+                })
+                .filter(Boolean);
+            if (names.length) {
+                const suffix = value.length > 5 ? ` (+${value.length - 5} more)` : '';
+                return names.join(', ') + suffix;
+            }
+            return `${value.length} items`;
+        }
+
+        // Nested objects
+        if (value && typeof value === 'object') {
+            if (value.name) return String(value.name);
+            if (value.unitName) return String(value.unitName);
+            if (value.districtName) return String(value.districtName);
+            const n = Object.keys(value).length;
+            return `{${n} fields}`;
+        }
+
+        return String(value);
+    }
+
     function renderTableFromLast(lastAssistantResult) {
         const base = getLastBase(lastAssistantResult);
         if (!base) return null;
@@ -269,30 +375,43 @@
         const objectRows = rows.filter((r) => r && typeof r === 'object' && !Array.isArray(r));
         if (!objectRows.length) return null;
 
-        const keys = [];
+        // Collect all keys, then filter
+        const allKeys = [];
         for (const row of objectRows.slice(0, 50)) {
             for (const key of Object.keys(row)) {
-                if (!keys.includes(key) && keys.length < 12) keys.push(key);
+                if (!allKeys.includes(key)) allKeys.push(key);
             }
-            if (keys.length >= 12) break;
         }
+
+        // Determine which ID ref columns to skip (when name column exists)
+        const skipKeys = new Set();
+        for (const [idKey, nameKey] of Object.entries(_ID_REF_KEYS)) {
+            if (allKeys.includes(idKey) && allKeys.includes(nameKey)) {
+                skipKeys.add(idKey);
+            }
+        }
+
+        const keys = allKeys.filter((k) => !_HIDDEN_KEYS.has(k) && !skipKeys.has(k)).slice(0, 12);
         if (!keys.length) return null;
 
-        const header = keys.map((k) => `<th>${escapeHtml(k)}</th>`).join('');
-        const body = objectRows.slice(0, 30).map((row) => {
+        const header = keys.map((k) => `<th>${escapeHtml(_humanizeHeader(k))}</th>`).join('');
+        const displayRows = objectRows.slice(0, 30);
+        const body = displayRows.map((row) => {
             const cells = keys.map((k) => {
-                const value = row[k];
-                const display = (value && typeof value === 'object')
-                    ? JSON.stringify(value)
-                    : String(value ?? '');
+                const display = _humanizeCell(row[k], k, row);
                 return `<td>${escapeHtml(display)}</td>`;
             }).join('');
             return `<tr>${cells}</tr>`;
         }).join('');
 
+        const rowInfo = objectRows.length > 30
+            ? `Showing 30 of ${objectRows.length} rows`
+            : `${objectRows.length} row${objectRows.length !== 1 ? 's' : ''}`;
+
         return `
             <div class="table-card">
                 <div class="table-title">Data Table</div>
+                <div class="table-subtitle" style="font-size:0.85em;color:#666;margin-bottom:8px;">${rowInfo}</div>
                 <div class="table-wrap">
                     <table class="data-table">
                         <thead><tr>${header}</tr></thead>
