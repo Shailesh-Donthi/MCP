@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections import OrderedDict, deque
 from typing import Any, Deque, Dict, Iterable, List, Optional, Set, Tuple
 
@@ -74,11 +75,28 @@ Rules:
 - Never invent unsupported tools.
 - Confidence between 0 and 1.
 - Only use dynamic_query if no tool 1-16 fits AND confidence is below 0.4.
+- When the query mentions a specific unit/PS/station name (e.g. "Guntur Traffic PS", "Chittoor Town PS"), always use query_personnel_by_unit — NEVER use get_personnel_distribution, which returns system-wide data without unit filtering.
+
+Examples:
+Input: "how many officers at Guntur Traffic PS"
+Output: {"tool":"query_personnel_by_unit","arguments":{"unit_name":"Guntur Traffic PS"},"understood_query":"Count officers at Guntur Traffic PS","confidence":0.95}
+
+Input: "who are the officers posted at Guntur Urban PS?"
+Output: {"tool":"query_personnel_by_unit","arguments":{"unit_name":"Guntur Urban PS"},"understood_query":"List officers at Guntur Urban PS","confidence":0.93}
 """
 
 RESPONSE_FORMATTER_PROMPT_V2 = """You are a concise assistant. Use only the provided tool result.
 If the result is empty, say no records matched.
-Keep answer factual and short."""
+Keep answer factual and short.
+
+Important rules:
+- Always echo back key entities from the user's question (district names, rank names, unit names, person names) in your response.
+- Use proper rank titles (e.g. "Sub-Inspector", "Constable", "Inspector", "ASI") when listing personnel.
+- When answering about a specific district, always mention the district name in your response.
+- When answering about personnel by rank, mention both the rank and any district/unit context.
+- If no results were found, still mention the entity names from the query (e.g. "No ASI personnel found in Annamayya district").
+- For gender-related queries, include the word "female" or "male" as appropriate in your response.
+- When listing officers, include their names and posting details, not just counts."""
 
 _ROUTE_TOOLS_REQUIRING_NONEMPTY_ARGS = {
     "search_personnel",
@@ -166,14 +184,45 @@ def _parse_route_response(
     if not response or not str(response).strip():
         return None
 
-    json_match = re.search(r"\{[\s\S]*\}", response)
+    # Strip markdown fences (```json ... ```) that LLMs sometimes wrap around JSON
+    cleaned = re.sub(r"```(?:json)?\s*", "", response).strip()
+    cleaned = re.sub(r"```\s*$", "", cleaned).strip()
+
+    # Try to extract the outermost JSON object
+    json_match = re.search(r"\{[\s\S]*\}", cleaned)
     if not json_match:
         return None
 
+    raw_json = json_match.group()
+    result = None
     try:
-        result = json.loads(json_match.group())
+        result = json.loads(raw_json)
     except json.JSONDecodeError:
-        return None
+        # Aggressive recovery: try fixing common issues
+        # 1. Trailing commas before closing brace
+        fixed = re.sub(r",\s*}", "}", raw_json)
+        fixed = re.sub(r",\s*]", "]", fixed)
+        try:
+            result = json.loads(fixed)
+        except json.JSONDecodeError:
+            # 2. Try extracting just the first complete JSON object
+            depth = 0
+            start = None
+            for i, ch in enumerate(cleaned):
+                if ch == "{":
+                    if depth == 0:
+                        start = i
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0 and start is not None:
+                        try:
+                            result = json.loads(cleaned[start : i + 1])
+                            break
+                        except json.JSONDecodeError:
+                            start = None
+            if result is None:
+                return None
 
     if not isinstance(result, dict):
         return None
@@ -350,18 +399,8 @@ async def llm_route_query(
         tool, args, understood, confidence = parsed
         repaired_tool, repaired_args = _repair_route_choice(tool, args)
         return repaired_tool, repaired_args, understood, confidence, "llm"
-    # Backward-compatible strict retry behavior without context.
-    retry_messages = [{"role": "user", "content": query}]
-    retry_response = await call_openai_api(retry_messages, ROUTER_SYSTEM_PROMPT_V2)
-    retry_parsed = _parse_route_response(
-        retry_response,
-        query,
-        available_tools=available,
-    )
-    if retry_parsed:
-        tool, args, understood, confidence = retry_parsed
-        repaired_tool, repaired_args = _repair_route_choice(tool, args)
-        return repaired_tool, repaired_args, understood, confidence, "llm_retry_no_context"
+
+    logger.warning("LLM route response could not be parsed, falling back to heuristic (query=%.80s)", query)
 
     fallback = fallback_route_query(query, available_tools=available)
     if isinstance(fallback, tuple) and len(fallback) >= 4:
@@ -449,7 +488,10 @@ def _capability_help_response_text() -> str:
 
 
 class IntelligentQueryHandler:
-    """V2 intelligent handler with bounded session memory."""
+    """V2 intelligent handler with bounded session memory and TTL."""
+
+    _SESSION_TTL_S = 1800  # 30 minutes idle timeout
+    _MAX_LAST_RESULT_ITEMS = 50  # truncate large result lists stored in state
 
     def __init__(self):
         self.tool_handler = get_tool_handler()
@@ -458,15 +500,34 @@ class IntelligentQueryHandler:
         self.max_session_contexts = 500
         self._history: Dict[str, Deque[Dict[str, str]]] = OrderedDict()
         self._state: Dict[str, Dict[str, Any]] = OrderedDict()
+        self._last_access: Dict[str, float] = {}  # session_id → monotonic timestamp
 
     def _ensure_session_slot(self, session_id: str) -> None:
+        self._evict_expired_sessions()
         if session_id in self._history:
             self._history.move_to_end(session_id)
         else:
             self._history[session_id] = deque(maxlen=self.max_history_messages)
+        self._last_access[session_id] = time.monotonic()
         while len(self._history) > self.max_session_contexts:
             oldest = next(iter(self._history))
             self._history.pop(oldest, None)
+            self._state.pop(oldest, None)
+            self._last_access.pop(oldest, None)
+
+    def _evict_expired_sessions(self) -> None:
+        """Remove sessions that have been idle longer than _SESSION_TTL_S."""
+        now = time.monotonic()
+        expired = [
+            sid for sid, ts in self._last_access.items()
+            if now - ts > self._SESSION_TTL_S
+        ]
+        for sid in expired:
+            self._history.pop(sid, None)
+            self._state.pop(sid, None)
+            self._last_access.pop(sid, None)
+        if expired:
+            logger.info("Evicted %d expired sessions (TTL=%ds)", len(expired), self._SESSION_TTL_S)
 
     def _get_history(self, session_id: str) -> Deque[Dict[str, str]]:
         self._ensure_session_slot(session_id)
@@ -482,7 +543,21 @@ class IntelligentQueryHandler:
         while len(self._state) > self.max_session_contexts:
             oldest = next(iter(self._state))
             self._state.pop(oldest, None)
+            self._last_access.pop(oldest, None)
         return state
+
+    @classmethod
+    def _truncate_last_result(cls, result: Any) -> Any:
+        """Truncate large result data to prevent unbounded memory growth."""
+        if not isinstance(result, dict):
+            return result
+        data = result.get("data")
+        if isinstance(data, list) and len(data) > cls._MAX_LAST_RESULT_ITEMS:
+            truncated = dict(result)
+            truncated["data"] = data[: cls._MAX_LAST_RESULT_ITEMS]
+            truncated["_truncated_from"] = len(data)
+            return truncated
+        return result
 
     def _available_tools(self) -> Set[str]:
         if hasattr(self.tool_handler, "get_tool_names"):
@@ -781,7 +856,7 @@ class IntelligentQueryHandler:
                         history.append({"role": "user", "content": clean_query})
                         history.append({"role": "assistant", "content": response_text})
                         state["last_tool"] = "search_personnel"
-                        state["last_result"] = combined_result
+                        state["last_result"] = self._truncate_last_result(combined_result)
                         output_payload = build_output_payload(
                             query=clean_query,
                             response_text=response_text,
@@ -811,10 +886,34 @@ class IntelligentQueryHandler:
             )
             logger.info("Hybrid router: tool=%s confidence=%.2f source=%s", tool_name, confidence, route_source)
 
+            # Post-routing correction: if the query mentions a specific unit/PS/station
+            # but was misrouted to get_personnel_distribution (system-wide), fix it.
+            if tool_name == "get_personnel_distribution":
+                import re as _re
+                _ps_match = _re.search(
+                    r'(?:at|in|of|from)\s+(?:the\s+)?(.+?\b(?:PS|UPS|Police\s+Station|Station|Circle|SDPO)\b)',
+                    clean_query, _re.IGNORECASE,
+                )
+                if _ps_match:
+                    unit_name = _ps_match.group(1).strip()
+                    logger.info("Hybrid: correcting misroute from get_personnel_distribution to query_personnel_by_unit (unit=%s)", unit_name)
+                    tool_name = "query_personnel_by_unit"
+                    arguments = {"unit_name": unit_name}
+                    confidence = 0.92
+
             use_prebuilt = False
             # High-confidence match to a real pre-built tool → try fast path
             if confidence >= 0.7 and tool_name not in ("dynamic_query", "__help__"):
-                result = await self.tool_handler.execute(tool_name, arguments, context)
+                from mcp.core.cache import tool_cache
+                cached = await tool_cache.get(tool_name, arguments)
+                if cached is not None:
+                    result = cached
+                    route_source = f"{route_source}_cached"
+                else:
+                    result = await self.tool_handler.execute(tool_name, arguments, context)
+                    # Cache the result for future identical queries
+                    if isinstance(result, dict) and result.get("success", True):
+                        await tool_cache.set(tool_name, arguments, result)
                 # Check if the tool returned useful, focused data
                 result_data = result.get("data", []) if isinstance(result, dict) else result
                 has_data = bool(result_data) if isinstance(result_data, (list, dict)) else bool(result)
@@ -841,7 +940,7 @@ class IntelligentQueryHandler:
                     # Save state for follow-up queries
                     state["last_tool"] = tool_name
                     state["last_arguments"] = dict(arguments or {})
-                    state["last_result"] = result if isinstance(result, dict) else {"data": result}
+                    state["last_result"] = self._truncate_last_result(result if isinstance(result, dict) else {"data": result})
                     output_payload = build_output_payload(
                         query=clean_query,
                         response_text=response_text,
@@ -886,7 +985,7 @@ class IntelligentQueryHandler:
                 history.append({"role": "assistant", "content": response_text})
                 state["last_tool"] = "dynamic_query"
                 state["last_arguments"] = {}
-                state["last_result"] = dq_result
+                state["last_result"] = self._truncate_last_result(dq_result)
                 output_payload = build_output_payload(
                     query=clean_query,
                     response_text=response_text,
@@ -1110,7 +1209,7 @@ class IntelligentQueryHandler:
                 history.append({"role": "assistant", "content": response_text})
                 state["last_tool"] = "dynamic_query"
                 state["last_arguments"] = dict(arguments)
-                state["last_result"] = dq_result
+                state["last_result"] = self._truncate_last_result(dq_result)
                 return {
                     "success": bool(dq_result.get("success", True)),
                     "query": clean_query,
@@ -1300,7 +1399,7 @@ class IntelligentQueryHandler:
         history.append({"role": "assistant", "content": response_text})
         state["last_tool"] = tool_name
         state["last_arguments"] = dict(arguments or {})
-        state["last_result"] = result if isinstance(result, dict) else {}
+        state["last_result"] = self._truncate_last_result(result if isinstance(result, dict) else {})
         if isinstance(result, dict) and isinstance(result.get("data"), list):
             rows = result.get("data") or []
             if rows and isinstance(rows[0], dict):

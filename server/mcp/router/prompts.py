@@ -158,6 +158,7 @@ Always respond with valid JSON in this exact format:
 9. Use search_personnel as fallback only for person lookup when no better tool fits.
 10. Confidence must be between 0 and 1.
 11. If user asks for designation-based lookup (for example "who has designation of SDPO"), prefer search_personnel with designation_name (not query_personnel_by_rank).
+12. When the query mentions a specific unit/PS/station name (e.g. "Guntur Traffic PS", "Chittoor Town PS"), always use query_personnel_by_unit with unit_name — NEVER use get_personnel_distribution, which returns system-wide data without unit filtering.
 
 ## Schema and Relation Hints:
 - Core personnel links:
@@ -198,6 +199,12 @@ Bad Output:
 Good Output:
 {"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Superintendent of Police","rank_relation":"exact"},"understood_query":"Find Superintendent of Police personnel in Guntur","confidence":0.93}
 
+Bad Input: "how many officers at Guntur Traffic PS"
+Bad Output:
+{"tool":"get_personnel_distribution","arguments":{"group_by":"rank"},"understood_query":"Personnel distribution by rank","confidence":0.70}
+Good Output:
+{"tool":"query_personnel_by_unit","arguments":{"unit_name":"Guntur Traffic PS"},"understood_query":"Count officers at Guntur Traffic PS unit","confidence":0.95}
+
 Bad Input: "how are roles and permissions linked"
 Bad Output:
 {"tool":"list_districts","arguments":{},"understood_query":"List districts","confidence":0.10}
@@ -205,6 +212,14 @@ Good Output:
 {"tool":"query_linked_master_data","arguments":{"collection":"roles_master","mode":"discover","include_related":true,"include_reverse":true,"include_integrity":true},"understood_query":"Discover relationship mapping between roles and permissions","confidence":0.94}
 
 ## Few-shot Examples:
+Input: "how many officers are posted at the Guntur Traffic PS unit?"
+Output:
+{"tool":"query_personnel_by_unit","arguments":{"unit_name":"Guntur Traffic PS"},"understood_query":"Count officers posted at Guntur Traffic PS","confidence":0.95}
+
+Input: "who are the officers posted at Guntur Urban PS?"
+Output:
+{"tool":"query_personnel_by_unit","arguments":{"unit_name":"Guntur Urban PS"},"understood_query":"List officers posted at Guntur Urban PS","confidence":0.93}
+
 Input: "list personell in guntur, above the rank of an SI"
 Output:
 {"tool":"query_personnel_by_rank","arguments":{"district_name":"Guntur","rank_name":"Sub-Inspector","rank_relation":"above"},"understood_query":"List personnel in Guntur with rank above Sub-Inspector","confidence":0.95}

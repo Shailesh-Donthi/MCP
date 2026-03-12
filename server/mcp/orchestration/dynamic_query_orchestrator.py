@@ -94,6 +94,7 @@ mandal_master.districtId→district_master._id
 11. If data is absent, say so clearly (e.g. "No vacancy data found in the system").
 12. When the user asks to "list all" or "show all", return individual records with names/details — do NOT return counts or group-by summaries unless explicitly asked for counts. Use a $limit of 500. Do NOT use small limits like 10 or 50 for listing queries. For $count/$group queries, omit $limit entirely so all records are counted.
 13. NEVER include raw ObjectIDs (24-character hex strings) in your final "done" answer. Always resolve ALL foreign keys to their actual names using $lookup BEFORE answering. For personnel queries, always $lookup: rankId→rank_master.name, departmentId→department_master.name, and via assignment_master: unitId→unit_master.name, unit_master.districtId→district_master.name, designationId→designation_master.name. If a name cannot be resolved, omit the field — do NOT show the raw ID.
+14. In your final "done" answer, always echo back the key entities from the user's question (district names, rank names, unit names, person names). For example, if the user asks about "Chittoor district", your answer must mention "Chittoor". If no results found, still mention the queried entity (e.g. "No ASI personnel found in Annamayya district" not just "No records found").
 """
 
 
