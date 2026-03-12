@@ -241,25 +241,9 @@ class DynamicQueryExecutor:
         self.scope_filter = ScopeFilter(db)
 
     async def describe_collections(self) -> Dict[str, Any]:
-        """Return field names and known FK relationships for every readable collection."""
-        schema: Dict[str, Any] = {}
-        for coll_name in sorted(READABLE_COLLECTIONS):
-            try:
-                sample = await self.db[coll_name].find_one(
-                    {"isDelete": False}, {"_id": 0}
-                )
-                if sample is None:
-                    sample = await self.db[coll_name].find_one({}, {"_id": 0})
-                fields = sorted(sample.keys()) if sample else []
-            except Exception:
-                fields = []
-
-            entry: Dict[str, Any] = {"fields": fields}
-            if coll_name in COLLECTION_RELATIONSHIPS:
-                entry["relationships"] = COLLECTION_RELATIONSHIPS[coll_name]
-            schema[coll_name] = entry
-
-        return {"collections": schema}
+        """Return pre-scanned schema with fields, types, and FK relationships."""
+        from mcp.core.schema_scanner import generate_schema_response, get_schema_info
+        return generate_schema_response(get_schema_info())
 
     async def find(
         self,

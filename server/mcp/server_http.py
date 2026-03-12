@@ -387,6 +387,11 @@ def _build_capability_help_response_text() -> str:
 async def _startup() -> None:
     global redis_client
     await connect_to_mongodb()
+
+    # Scan DB schema before tools init so the dynamic orchestrator has type/FK/enum info
+    from mcp.core.schema_scanner import scan_schema
+    await scan_schema()
+
     get_tool_handler().initialize()
 
     if redis is not None and settings.REDIS_URL:
