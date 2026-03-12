@@ -889,10 +889,9 @@ class IntelligentQueryHandler:
             # Post-routing correction: if the query mentions a specific unit/PS/station
             # but was misrouted to get_personnel_distribution (system-wide), fix it.
             if tool_name == "get_personnel_distribution":
-                import re as _re
-                _ps_match = _re.search(
+                _ps_match = re.search(
                     r'(?:at|in|of|from)\s+(?:the\s+)?(.+?\b(?:PS|UPS|Police\s+Station|Station|Circle|SDPO)\b)',
-                    clean_query, _re.IGNORECASE,
+                    clean_query, re.IGNORECASE,
                 )
                 if _ps_match:
                     unit_name = _ps_match.group(1).strip()
