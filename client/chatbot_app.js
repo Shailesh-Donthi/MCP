@@ -767,9 +767,8 @@
                     query: command,
                     output_format: 'auto',
                     allow_download: null,
-                    // Preserve pagination/session context without persisting a
-                    // new "next page" / "previous page" chat message.
                     session_id: getActiveChatSessionId(),
+                    routing_mode: currentRoutingMode,
                 }),
             });
 
@@ -1097,6 +1096,7 @@
                     allow_download: null,
                     chat_id: activeChat?.id || null,
                     session_id: getActiveChatSessionId(),
+                    routing_mode: currentRoutingMode,
                 }),
             });
 
@@ -1396,6 +1396,7 @@
                     allow_download: null,
                     chat_id: activeChat?.id || null,
                     session_id: getActiveChatSessionId(),
+                    routing_mode: currentRoutingMode,
                 }),
             });
 
@@ -1503,6 +1504,7 @@
         await initializeChatThreadsUi();
         initializeAccessState();
         void loadModelState();
+        void loadRoutingModeState();
     }
 
     // -----------------------------------------------------------------------
@@ -1554,6 +1556,52 @@
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Routing mode switcher (Smart AI vs MongoDB MCP)
+    // -----------------------------------------------------------------------
+
+    let currentRoutingMode = 'smart_ai';
+
+    async function loadRoutingModeState() {
+        try {
+            const sessionId = getActiveChatSessionId();
+            const url = '/api/v1/routing-mode' + (sessionId ? '?session_id=' + encodeURIComponent(sessionId) : '');
+            const data = await chatApiFetch(url, { method: 'GET' });
+            currentRoutingMode = data.mode || 'smart_ai';
+            updateRoutingModeUi();
+        } catch (_err) {
+            const nameEl = document.getElementById('routingModeName');
+            if (nameEl) nameEl.textContent = 'Smart AI';
+        }
+    }
+
+    function updateRoutingModeUi() {
+        const nameEl = document.getElementById('routingModeName');
+        const toggle = document.getElementById('routingModeToggle');
+        if (!nameEl || !toggle) return;
+        nameEl.textContent = currentRoutingMode === 'mcp_mode' ? 'MongoDB MCP' : 'Smart AI';
+        toggle.checked = currentRoutingMode === 'mcp_mode';
+    }
+
+    async function switchRoutingMode(useMcp) {
+        const newMode = useMcp ? 'mcp_mode' : 'smart_ai';
+        const nameEl = document.getElementById('routingModeName');
+        if (nameEl) nameEl.textContent = 'Switching...';
+        try {
+            const sessionId = getActiveChatSessionId();
+            const data = await chatApiFetch('/api/v1/routing-mode', {
+                method: 'POST',
+                body: JSON.stringify({ mode: newMode, session_id: sessionId || null }),
+            });
+            currentRoutingMode = data.mode || newMode;
+            updateRoutingModeUi();
+        } catch (_err) {
+            if (nameEl) nameEl.textContent = 'Error';
+            const toggle = document.getElementById('routingModeToggle');
+            if (toggle) toggle.checked = !useMcp;
+        }
+    }
+
     window.autoResize = autoResize;
     window.handleKeyDown = handleKeyDown;
     window.sendSuggestion = sendSuggestion;
@@ -1561,6 +1609,7 @@
     window.changeResponseBubblePage = changeResponseBubblePage;
     window.toggleCollapse = toggleCollapse;
     window.switchModel = switchModel;
+    window.switchRoutingMode = switchRoutingMode;
     window.startPersonnelSearch = startPersonnelSearch;
     window.startNewChat = startNewChat;
     window.sendMessage = sendMessage;

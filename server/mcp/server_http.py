@@ -71,6 +71,12 @@ class QueryRequest(BaseModel):
     allow_download: Optional[bool] = None
     session_id: Optional[str] = None
     chat_id: Optional[str] = None
+    routing_mode: Optional[str] = None  # "smart_ai" | "mcp_mode"
+
+
+class SetRoutingModeRequest(BaseModel):
+    mode: str  # "smart_ai" | "mcp_mode"
+    session_id: Optional[str] = None
 
 
 class ChatMessageRequest(BaseModel):
@@ -699,6 +705,29 @@ async def set_llm_model(request: SetModelRequest) -> Dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Routing Mode Switching (per-session: Smart AI vs MongoDB MCP)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/routing-mode", tags=["Config"])
+async def get_routing_mode(session_id: Optional[str] = None) -> Dict[str, Any]:
+    from mcp.llm_router import get_intelligent_handler
+    handler = get_intelligent_handler()
+    mode = handler.get_routing_mode(session_id or "default")
+    return {"mode": mode, "session_id": session_id or "default"}
+
+
+@app.post("/api/v1/routing-mode", tags=["Config"])
+async def set_routing_mode(request: SetRoutingModeRequest) -> Dict[str, Any]:
+    from mcp.llm_router import get_intelligent_handler
+    handler = get_intelligent_handler()
+    try:
+        handler.set_routing_mode(request.session_id or "default", request.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, "mode": request.mode, "session_id": request.session_id or "default"}
+
+
 @app.get("/api/v1/mcp/tools", tags=["MCP Tools"])
 async def list_tools(_: None = Depends(check_rate_limit)) -> Dict[str, Any]:
     handler = get_tool_handler()
@@ -970,6 +999,10 @@ async def intelligent_query(
     chat_owner = _chat_owner_key(http_request, context)
     chat_thread = _get_chat_thread(chat_owner, request.chat_id) if request.chat_id else None
     resolved_session_id = request.session_id or (chat_thread.get("sessionId") if isinstance(chat_thread, dict) else None)
+
+    # Apply per-request routing_mode override
+    if request.routing_mode in ("smart_ai", "mcp_mode"):
+        handler.set_routing_mode(resolved_session_id or "default", request.routing_mode)
 
     result = await handler.process_query(
         request.query,

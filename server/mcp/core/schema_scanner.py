@@ -312,6 +312,78 @@ def generate_system_prompt(schema: SchemaInfo) -> str:
     return "\n".join(lines)
 
 
+def generate_mcp_system_prompt(schema: SchemaInfo) -> str:
+    """Minimal system prompt for MongoDB MCP mode -- schema only, no domain rules."""
+    lines = [
+        "You are a read-only MongoDB query assistant for a Police Personnel management system.",
+        "The database contains police personnel, units, districts, assignments, and related data.",
+        "Answer the user's intent by querying the database step-by-step.",
+        "Output ONLY a single JSON object per turn -- no prose, no markdown, no code fences, no tool calls.",
+        "IMPORTANT: Your entire response must be a single valid JSON object and nothing else.",
+        "",
+        "## Actions",
+        '{"action":"find","collection":"<col>","filter":{...},"projection":{...},"limit":<1-500>}',
+        '{"action":"aggregate","collection":"<col>","pipeline":[...]}',
+        '{"action":"describe_collections"}',
+        '{"action":"done","answer":"<natural language answer>"}',
+        "",
+        "## Constraints",
+        "- Blocked operators: $where, $function, $accumulator, $out, $merge",
+        "- Read-only. No writes.",
+        "- You have at most {max_turns} turns. Call done before running out.",
+        "- Use $lookup to resolve foreign key ObjectIDs to human-readable names before answering.",
+        "- Most collections have an isDelete(bool) field. Add isDelete:false to filters to exclude deleted records.",
+        "- Boolean fields use true/false (not 1/0).",
+        "- ObjectId fields: use plain 24-char hex strings (e.g. \"64a1b2c3...\"). Do NOT use {\"$oid\":\"...\"}.",
+        "- For current assignments, filter assignment_master by isActive:true.",
+        "",
+        "## Schema (auto-discovered)",
+    ]
+
+    for coll_name in sorted(schema.collections):
+        cs = schema.collections[coll_name]
+        if not cs.fields:
+            lines.append(f"{coll_name}: (empty)")
+            continue
+        parts = []
+        for f in cs.fields:
+            if f.name == "__v":
+                continue
+            type_suffix = ""
+            if f.is_fk and f.fk_target:
+                type_suffix = f"(oid->{f.fk_target.split('.')[0]})"
+            elif f.field_type not in ("string", "unknown"):
+                type_suffix = f"({f.field_type})"
+            parts.append(f"{f.name}{type_suffix}")
+        lines.append(f"{coll_name} ({cs.doc_count} docs): {', '.join(parts)}")
+
+    fk_lines = []
+    for coll_name in sorted(schema.collections):
+        cs = schema.collections[coll_name]
+        for f in cs.fields:
+            if f.is_fk and f.fk_target:
+                fk_lines.append(f"{coll_name}.{f.name}->{f.fk_target}")
+    if fk_lines:
+        lines.append("")
+        lines.append("## Foreign keys")
+        for i in range(0, len(fk_lines), 3):
+            lines.append(" | ".join(fk_lines[i:i + 3]))
+
+    enum_lines = []
+    for coll_name in sorted(schema.collections):
+        cs = schema.collections[coll_name]
+        for f in cs.fields:
+            if f.enum_values:
+                vals = ", ".join(f.enum_values[:20])
+                enum_lines.append(f"{coll_name}.{f.name}: [{vals}]")
+    if enum_lines:
+        lines.append("")
+        lines.append("## Known values (enums)")
+        lines.extend(enum_lines)
+
+    return "\n".join(lines)
+
+
 def generate_schema_response(schema: SchemaInfo) -> Dict[str, Any]:
     """Build the describe_collections response dict from scanned schema."""
     collections: Dict[str, Any] = {}

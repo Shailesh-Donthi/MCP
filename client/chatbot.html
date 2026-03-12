@@ -1189,6 +1189,17 @@
                     <span class="toggle-slider"></span>
                 </label>
             </div>
+
+            <div class="model-switcher" id="routingSwitcher">
+                <div>
+                    <div class="model-switcher-label">Mode</div>
+                    <div class="model-switcher-name" id="routingModeName">Smart AI</div>
+                </div>
+                <label class="toggle-switch" title="Switch between Smart AI and MongoDB MCP mode">
+                    <input type="checkbox" id="routingModeToggle" onchange="switchRoutingMode(this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
         </div>
 
         <div class="chat-shell">

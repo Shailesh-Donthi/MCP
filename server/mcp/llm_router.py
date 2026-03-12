@@ -500,7 +500,8 @@ class IntelligentQueryHandler:
         self.max_session_contexts = 500
         self._history: Dict[str, Deque[Dict[str, str]]] = OrderedDict()
         self._state: Dict[str, Dict[str, Any]] = OrderedDict()
-        self._last_access: Dict[str, float] = {}  # session_id → monotonic timestamp
+        self._last_access: Dict[str, float] = {}  # session_id -> monotonic timestamp
+        self._routing_modes: Dict[str, str] = {}  # session_id -> "smart_ai" | "mcp_mode"
 
     def _ensure_session_slot(self, session_id: str) -> None:
         self._evict_expired_sessions()
@@ -514,6 +515,7 @@ class IntelligentQueryHandler:
             self._history.pop(oldest, None)
             self._state.pop(oldest, None)
             self._last_access.pop(oldest, None)
+            self._routing_modes.pop(oldest, None)
 
     def _evict_expired_sessions(self) -> None:
         """Remove sessions that have been idle longer than _SESSION_TTL_S."""
@@ -526,6 +528,7 @@ class IntelligentQueryHandler:
             self._history.pop(sid, None)
             self._state.pop(sid, None)
             self._last_access.pop(sid, None)
+            self._routing_modes.pop(sid, None)
         if expired:
             logger.info("Evicted %d expired sessions (TTL=%ds)", len(expired), self._SESSION_TTL_S)
 
@@ -545,6 +548,14 @@ class IntelligentQueryHandler:
             self._state.pop(oldest, None)
             self._last_access.pop(oldest, None)
         return state
+
+    def get_routing_mode(self, session_id: str) -> str:
+        return self._routing_modes.get(session_id or "default", "smart_ai")
+
+    def set_routing_mode(self, session_id: str, mode: str) -> None:
+        if mode not in ("smart_ai", "mcp_mode"):
+            raise ValueError(f"Unknown routing mode: {mode!r}")
+        self._routing_modes[session_id or "default"] = mode
 
     @classmethod
     def _truncate_last_result(cls, result: Any) -> Any:
@@ -982,6 +993,52 @@ class IntelligentQueryHandler:
                 "extracted_arguments": {},
                 "data": dq_result.get("data", {}),
                 "route_source": "dynamic_only",
+                "route_confidence": 1.0,
+                "understood_as": clean_query,
+                "output": output_payload,
+                "history_size": len(history),
+            }
+        # ────────────────────────────────────────────────────────────────────
+
+        # ── mcp_mode: per-session MongoDB MCP simulation ─────────────────
+        effective_mode = self.get_routing_mode(session_key)
+        if effective_mode == "mcp_mode":
+            from mcp.core.database import get_database
+            from mcp.core.schema_scanner import generate_mcp_system_prompt, get_schema_info
+            from mcp.orchestration.dynamic_query_orchestrator import DynamicQueryOrchestrator
+            from mcp.tools.dynamic_query_tool import DynamicQueryExecutor
+
+            db = get_database()
+            orchestrator = DynamicQueryOrchestrator(DynamicQueryExecutor(db))
+            mcp_prompt = generate_mcp_system_prompt(get_schema_info()).replace(
+                "{max_turns}", str(12)
+            )
+            dq_result = await orchestrator.run_with_prompt(
+                intent=clean_query,
+                context=context,
+                system_prompt=mcp_prompt,
+            )
+            response_text = dq_result.get("response") or "No answer returned."
+            history.append({"role": "user", "content": clean_query})
+            history.append({"role": "assistant", "content": response_text})
+            output_payload = build_output_payload(
+                query=clean_query,
+                response_text=response_text,
+                routed_to="dynamic_query",
+                arguments={},
+                result=dq_result,
+                requested_format=output_format,
+                allow_download=allow_download,
+            )
+            return {
+                "success": dq_result.get("success", True),
+                "query": clean_query,
+                "response": response_text,
+                "routed_to": "dynamic_query",
+                "arguments": {},
+                "extracted_arguments": {},
+                "data": dq_result.get("data", {}),
+                "route_source": "mcp_mode",
                 "route_confidence": 1.0,
                 "understood_as": clean_query,
                 "output": output_payload,

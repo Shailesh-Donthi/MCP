@@ -7,6 +7,7 @@ with ToolHandler and are never picked directly by the router.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
@@ -216,6 +217,41 @@ def _infer_scope_type(collection: str) -> str:
     return "generic"
 
 
+_OID_RE = re.compile(r"^[0-9a-fA-F]{24}$")
+
+# Fields known to store boolean values — LLMs often send 0/1 instead of true/false
+_BOOL_FIELDS = frozenset({
+    "isDelete", "isActive", "isPrimary", "isVerified", "isMale",
+})
+
+
+def _coerce_types(doc: Any, field_name: str = "") -> Any:
+    """Recursively fix common LLM type mismatches in MongoDB queries.
+
+    Fixes applied:
+    1. {"$oid": "64a..."} -> ObjectId("64a...")
+    2. Plain 24-char hex string in *Id fields -> ObjectId("64a...")
+    3. 0/1 in known boolean fields -> false/true
+    """
+    if isinstance(doc, dict):
+        # Pattern 1: {"$oid": "64a..."} -> ObjectId
+        if "$oid" in doc and len(doc) == 1:
+            val = doc["$oid"]
+            if isinstance(val, str) and _OID_RE.match(val):
+                return ObjectId(val)
+        return {k: _coerce_types(v, field_name=k) for k, v in doc.items()}
+    if isinstance(doc, list):
+        return [_coerce_types(i, field_name=field_name) for i in doc]
+    # Pattern 2: plain 24-char hex string in ObjectId-ref fields
+    if isinstance(doc, str) and _OID_RE.match(doc):
+        if field_name == "_id" or field_name.endswith("Id"):
+            return ObjectId(doc)
+    # Pattern 3: 0/1 -> bool for known boolean fields
+    if isinstance(doc, int) and doc in (0, 1) and field_name in _BOOL_FIELDS:
+        return bool(doc)
+    return doc
+
+
 def _serialize(doc: Any) -> Any:
     """Convert a MongoDB document to a JSON-safe value."""
     if isinstance(doc, dict):
@@ -254,6 +290,7 @@ class DynamicQueryExecutor:
         context: UserContext,
     ) -> Dict[str, Any]:
         QueryValidator.validate_collection(collection)
+        filter_doc = _coerce_types(filter_doc)
         QueryValidator.validate_filter(filter_doc)
         limit = min(max(1, limit), _MAX_RESULTS)
 
@@ -272,6 +309,7 @@ class DynamicQueryExecutor:
         context: UserContext,
     ) -> Dict[str, Any]:
         QueryValidator.validate_collection(collection)
+        pipeline = _coerce_types(pipeline)
         QueryValidator.validate_pipeline(pipeline)
 
         scoped_pipeline = await self._inject_scope(pipeline, collection, context)

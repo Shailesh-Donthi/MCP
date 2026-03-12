@@ -1,0 +1,222 @@
+[
+  {
+    "name": "synonym_cops_in_guntur",
+    "query": "How many cops are posted in Guntur?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 6.4,
+    "route_source": "hybrid_dynamic",
+    "routed_to": "dynamic_query",
+    "response": "There are 1,417 police personnel currently posted in the Guntur district."
+  },
+  {
+    "name": "synonym_boss_of_chittoor",
+    "query": "Who is the boss of Chittoor police?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 2.61,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "get_unit_command_history",
+    "response": "No boss (current responsible officer) found for the Chittoor police."
+  },
+  {
+    "name": "informal_phone_lookup",
+    "query": "Can you give me Malika Garg's phone number?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 0.97,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "search_personnel",
+    "response": "Found 1 matching personnel record(s) with full details:\n\n1. Malika Garg\n   - User ID: 15026868\n   - Badge No: 3001\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Technical Services (Guntur)\n   - District: Guntur\n   - Gender: Female\n   - Date of birth: N/A\n   - Mobile: +919618088215\n   - Email: sp_pcs@appolice.gov.in\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Technical Services (Guntur)"
+  },
+  {
+    "name": "total_personnel_count",
+    "query": "What is the total number of personnel in the entire system?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 7.19,
+    "route_source": "hybrid_dynamic",
+    "routed_to": "dynamic_query",
+    "response": "The system contains a total of 3,266 personnel records."
+  },
+  {
+    "name": "count_sis_in_guntur",
+    "query": "How many Sub-Inspectors are in Guntur district?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 4.07,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "query_personnel_by_rank",
+    "response": "There are **18 Sub‑Inspectors** listed in the Guntur district."
+  },
+  {
+    "name": "count_districts_total",
+    "query": "How many districts are there in the system?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 1.8,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "list_districts",
+    "response": "There are **30 districts** listed in the system."
+  },
+  {
+    "name": "officers_at_specific_station",
+    "query": "Who is posted at Kuppam PS?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 56.73,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "query_personnel_by_unit",
+    "response": "**Personnel posted at Kuppam PS**\n\n- A Nagesh – Police Constable  \n- A S Mani – Police Constable  \n- Amarnath Naidu G – Head Constable  \n- B Sadiq – Police Constable  \n- B Sudhakar – Police Constable  \n- Babu Erukala – Sub Inspector  \n- Chakrapani S V – Head Const"
+  },
+  {
+    "name": "units_under_guntur_dpo",
+    "query": "What units fall under Guntur DPO?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 9.01,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "get_unit_hierarchy",
+    "response": "**Units under Guntur DPO (Guntur District Police Office)**  \n\n- DCRB – Special Wing  \n- DSB – Special Wing  \n- DTRB – Special Wing  \n- East Sub Division – Sub‑Divisional Police Office (Police Reference ID 2043401)  \n- Finger Prints Unit – Special Wing  \n- Guntur CCS – Police Station (Police Reference ID 2043091)  \n- Guntur Mahila PS – Police Station (Police Reference ID 2043015)  \n- Guntur Traffic PS – Police Station (Police Reference ID 2043021)  \n- IT core – Special Wing  \n- North Sub Division – Sub‑Divisional Police Office (Police Reference ID 2043403)  \n- PCR, Guntur – Special Wing  \n- PCR, Tenali – Sub‑Divisional Police Office  \n- PGRS – Special Wing  \n- SCST cell – Special Wing  \n- South Sub Division – Sub‑Divisional Police Office (Police Reference ID 2043404)  \n- Tadepalli Traffic PS – Sub‑Divisional Police Office  \n- Tenali Sub Division – Sub‑Divisional Police Office (Police Reference ID 2019406)  \n- Thulluru Sub Division – Sub‑Divisional Police Office (Police Reference ID 2019407)  \n- West Sub Division – Sub‑Divisional Police Office (Police Reference ID 204"
+  },
+  {
+    "name": "rank_of_specific_person",
+    "query": "What is the rank of Sake Mahendra?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 1.09,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "search_personnel",
+    "response": "Found 1 matching personnel record(s) with full details:\n\n1. Sake Mahendra\n   - User ID: 15134100\n   - Badge No: 9861\n   - Rank: Deputy Superintendent of Police (DSP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Madanapalle SDPO (Annamayya)\n   - District: Annamayya\n   - Gender: Male\n   - Date of birth: 1992-10-25\n   - Mobile: +919717169173\n   - Email: smdkrishna@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Madanapalle SDPO (Annamayya)"
+  },
+  {
+    "name": "nonexistent_person",
+    "query": "Find details of John Smith in the system",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 12.38,
+    "route_source": "hybrid_dynamic",
+    "routed_to": "dynamic_query",
+    "response": "No personnel named John Smith was found in the system."
+  },
+  {
+    "name": "nonexistent_rank",
+    "query": "List all Brigadiers in the system",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 13.81,
+    "route_source": "hybrid_dynamic",
+    "routed_to": "dynamic_query",
+    "response": "No Brigadier personnel were found in the system."
+  },
+  {
+    "name": "empty_result_graceful",
+    "query": "Show all transfers in Srikakulam district in the last week",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 12.54,
+    "route_source": "hybrid_dynamic",
+    "routed_to": "dynamic_query",
+    "response": "No transfer records were found in Srikakulam district for the past week."
+  },
+  {
+    "name": "compare_three_districts",
+    "query": "Compare officer counts in Guntur, Chittoor, and Visakhapatnam",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 4.16,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "get_personnel_distribution",
+    "response": "- Guntur district: 1,417 officers  \n- Chittoor district: no officer count data available  \n- Visakhapatnam district: no officer count data available"
+  },
+  {
+    "name": "top_ranks_systemwide",
+    "query": "How many SPs, DSPs, and Inspectors are there in total?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 3.85,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "get_personnel_distribution",
+    "response": "- Superintendent of Police (SP): 27  \n- Deputy Superintendent of Police (DSP): 17  \n- Inspector of Police (Inspector): 31  \n\n**Total SPs, DSPs, and Inspectors:** 75."
+  },
+  {
+    "name": "badge_number_lookup",
+    "query": "Who has badge number 3001?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 1.52,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "search_personnel",
+    "response": "Found 1 matching personnel record(s) with full details:\n\n1. Malika Garg\n   - User ID: 15026868\n   - Badge No: 3001\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Technical Services (Guntur)\n   - District: Guntur\n   - Gender: Female\n   - Date of birth: N/A\n   - Mobile: +919618088215\n   - Email: sp_pcs@appolice.gov.in\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Technical Services (Guntur)"
+  },
+  {
+    "name": "user_id_lookup",
+    "query": "Find the officer with user ID 14402876",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 1.23,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "search_personnel",
+    "response": "Found 1 matching personnel record(s) with full details:\n\n1. Vakul Jindal\n   - User ID: 14402876\n   - Badge No: N/A\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Guntur DPO (Guntur)\n   - District: Guntur\n   - Gender: male\n   - Date of birth: 1991-09-08\n   - Mobile: +918688831300\n   - Email: vakul.jindal@ips.gov.in\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Guntur DPO (Guntur)"
+  },
+  {
+    "name": "email_lookup",
+    "query": "Which officer has the mobile number 8688831300?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 1.09,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "search_personnel",
+    "response": "Found 1 matching personnel record(s) with full details:\n\n1. Vakul Jindal\n   - User ID: 14402876\n   - Badge No: N/A\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Guntur DPO (Guntur)\n   - District: Guntur\n   - Gender: male\n   - Date of birth: 1991-09-08\n   - Mobile: +918688831300\n   - Email: vakul.jindal@ips.gov.in\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Guntur DPO (Guntur)"
+  },
+  {
+    "name": "natural_smallest_district",
+    "query": "Which district has the fewest officers?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 2.66,
+    "route_source": "hybrid_tool:llm",
+    "routed_to": "get_personnel_distribution",
+    "response": "The districts with the fewest officers are **YSR Kadapa** and **NTR**, each having only **3 officers**."
+  },
+  {
+    "name": "natural_recent_activity",
+    "query": "Have there been any recent transfers?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 14.03,
+    "route_source": "hybrid_dynamic",
+    "routed_to": "dynamic_query",
+    "response": "There have been no recent transfers recorded in the system."
+  },
+  {
+    "name": "natural_help_request",
+    "query": "What kind of questions can I ask you?",
+    "passed": true,
+    "failures": [],
+    "status_code": 200,
+    "duration_s": 3.49,
+    "route_source": "hybrid_dynamic",
+    "routed_to": "dynamic_query",
+    "response": "You can ask me about police personnel information such as assignments, ranks, units, districts, personnel details, transfers, and related data stored in the system. I can retrieve specific records, list personnel in a particular unit or rank, show assignment histories, and answer other queries related to the police personnel management database."
+  }
+]

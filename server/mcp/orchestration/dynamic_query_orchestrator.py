@@ -58,14 +58,40 @@ class DynamicQueryOrchestrator:
                 "route_source": "dynamic_query",
             }
 
+    async def run_with_prompt(
+        self,
+        intent: str,
+        context: UserContext,
+        system_prompt: str,
+        conversation_context: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        """Run with a caller-supplied system prompt. Bypasses cache."""
+        try:
+            return await self._run(
+                intent, context,
+                conversation_context=conversation_context,
+                system_prompt=system_prompt,
+            )
+        except Exception as exc:
+            logger.exception("DynamicQueryOrchestrator (custom prompt) error: %s", exc)
+            return {
+                "success": False,
+                "data": {},
+                "response": "I encountered an internal error. Please try rephrasing.",
+                "turns": 0,
+                "route_source": "mcp_mode",
+            }
+
     async def _run(
         self,
         intent: str,
         context: UserContext,
         conversation_context: Optional[List[Dict[str, str]]] = None,
+        system_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
-        schema = get_schema_info()
-        system_prompt = generate_system_prompt(schema).replace("{max_turns}", str(_MAX_TURNS))
+        if system_prompt is None:
+            schema = get_schema_info()
+            system_prompt = generate_system_prompt(schema).replace("{max_turns}", str(_MAX_TURNS))
 
         messages: List[Dict[str, str]] = []
         if conversation_context:
