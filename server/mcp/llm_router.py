@@ -255,11 +255,11 @@ def _parse_route_response(
     if not isinstance(understood_query, str) or not understood_query.strip():
         understood_query = query
 
-    confidence_raw = result.get("confidence", 0.5)
+    confidence_raw = result.get("confidence", 0.65)
     try:
         confidence = float(confidence_raw)
     except Exception:
-        confidence = 0.5
+        confidence = 0.65
     confidence = max(0.0, min(1.0, confidence))
 
     return tool, arguments, understood_query, confidence
@@ -616,6 +616,58 @@ class IntelligentQueryHandler:
         )
 
     @staticmethod
+    def _suggest_alternate_tool(query: str, failed_tool: str, failed_args: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
+        """When a pre-built tool returns empty, suggest an alternate tool to try.
+
+        Returns (alt_tool_name, alt_arguments) or (None, {}).
+        """
+        # If search_personnel failed, try query_personnel_by_rank with extracted rank/district
+        if failed_tool == "search_personnel":
+            rank_match = re.search(
+                r'\b(SP|DSP|Inspector|Sub[- ]?Inspector|SI|ASI|Constable|PC|HC|IGP|DIG|AIG)\b',
+                query, re.IGNORECASE,
+            )
+            district_match = re.search(
+                r'\b(?:in|of|at|from)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+                query,
+            )
+            if rank_match:
+                args: Dict[str, Any] = {"rank_name": rank_match.group(1).strip()}
+                if district_match:
+                    args["district_name"] = district_match.group(1).strip()
+                return "query_personnel_by_rank", args
+
+        # If query_personnel_by_rank failed, try search_personnel with name-based search
+        if failed_tool == "query_personnel_by_rank":
+            district = failed_args.get("district_name") or ""
+            rank = failed_args.get("rank_name") or ""
+            if district:
+                return "search_personnel", {"designation_name": rank, "name": district}
+
+        # If query_personnel_by_unit returned empty, try search_unit first to verify unit exists
+        if failed_tool == "query_personnel_by_unit":
+            unit = failed_args.get("unit_name") or ""
+            if unit:
+                return "search_unit", {"name": unit}
+
+        # If get_personnel_distribution returned empty, try with district filter
+        if failed_tool == "get_personnel_distribution":
+            district_match = re.search(
+                r'\b(?:in|of|at|from)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+                query,
+            )
+            if district_match:
+                return "query_personnel_by_rank", {"district_name": district_match.group(1).strip(), "rank_name": "all"}
+
+        # If get_district_info returned empty, try search_unit with district name
+        if failed_tool == "get_district_info":
+            district = failed_args.get("district_name") or ""
+            if district:
+                return "search_unit", {"district_name": district}
+
+        return None, {}
+
+    @staticmethod
     def _split_complex_query_chain(query: str) -> List[str]:
         raw = str(query or "").strip()
         if not raw:
@@ -901,27 +953,45 @@ class IntelligentQueryHandler:
                     confidence = 0.92
 
             use_prebuilt = False
-            # High-confidence match to a real pre-built tool → try fast path
-            if confidence >= 0.7 and tool_name not in ("dynamic_query", "__help__"):
+            # Confident match to a real pre-built tool → try fast path
+            if confidence >= 0.5 and tool_name not in ("dynamic_query", "__help__"):
                 from mcp.core.cache import tool_cache
-                cached = await tool_cache.get(tool_name, arguments)
-                if cached is not None:
-                    result = cached
-                    route_source = f"{route_source}_cached"
-                else:
-                    result = await self.tool_handler.execute(tool_name, arguments, context)
-                    # Cache the result for future identical queries
-                    if isinstance(result, dict) and result.get("success", True):
-                        await tool_cache.set(tool_name, arguments, result)
-                # Check if the tool returned useful, focused data
-                result_data = result.get("data", []) if isinstance(result, dict) else result
-                has_data = bool(result_data) if isinstance(result_data, (list, dict)) else bool(result)
-                result_success = result.get("success", True) if isinstance(result, dict) else True
-                # If the tool returned too many results, it likely didn't filter properly
-                if isinstance(result_data, list) and len(result_data) > 1000:
-                    has_data = False
 
-                if has_data and result_success:
+                async def _try_prebuilt(t_name, t_args):
+                    """Execute a pre-built tool, using cache. Returns (result, result_data, has_data, source)."""
+                    _cached = await tool_cache.get(t_name, t_args)
+                    if _cached is not None:
+                        _result = _cached
+                        _src = f"{route_source}_cached"
+                    else:
+                        _result = await self.tool_handler.execute(t_name, t_args, context)
+                        _src = route_source
+                        # Only cache results that have actual data (prevent cache poisoning)
+                        _rd = _result.get("data", []) if isinstance(_result, dict) else _result
+                        _has = bool(_rd) if isinstance(_rd, (list, dict)) else bool(_result)
+                        if _has and isinstance(_result, dict) and _result.get("success", True):
+                            await tool_cache.set(t_name, t_args, _result)
+                    _rd = _result.get("data", []) if isinstance(_result, dict) else _result
+                    _has = bool(_rd) if isinstance(_rd, (list, dict)) else bool(_result)
+                    _ok = _result.get("success", True) if isinstance(_result, dict) else True
+                    if isinstance(_rd, list) and len(_rd) > 1000:
+                        _has = False
+                    return _result, _rd, (_has and _ok), _src
+
+                result, result_data, has_data, route_source = await _try_prebuilt(tool_name, arguments)
+
+                # ── Retry-on-empty: try alternate tool before falling to dynamic ──
+                if not has_data:
+                    alt_tool, alt_args = self._suggest_alternate_tool(clean_query, tool_name, arguments)
+                    if alt_tool:
+                        logger.info("Hybrid: %s returned empty, retrying with %s(%s)", tool_name, alt_tool, alt_args)
+                        result, result_data, has_data, route_source = await _try_prebuilt(alt_tool, alt_args)
+                        if has_data:
+                            tool_name = alt_tool
+                            arguments = alt_args
+                            route_source = f"{route_source}_retry"
+
+                if has_data:
                     use_prebuilt = True
                     response_text = fallback_format_response(clean_query, tool_name, arguments, result)
                     # If the formatter returned a generic "No records matched" but data exists,
