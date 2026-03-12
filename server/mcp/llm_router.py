@@ -620,6 +620,40 @@ class IntelligentQueryHandler:
         )
 
     @staticmethod
+    def _normalize_verbose_unit_names(query: str) -> str:
+        """Convert verbose unit names to their database short forms.
+
+        Examples:
+        - "District Police Office (DPO) - Nandyal city" → "Nandyal DPO"
+        - "Police Station (PS) - Kuppam" → "Kuppam PS"
+        - "Sub-Divisional Police Office (SDPO), Tirupati" → "Tirupati SDPO"
+        """
+        # Pattern: "Full Name (ABBR) - Place" or "Full Name (ABBR), Place"
+        _VERBOSE_UNIT = re.compile(
+            r'(?:District\s+Police\s+Office|Police\s+Station|Sub[- ]?Divisional\s+Police\s+Office|'
+            r'Circle\s+Inspector\s+Office|Armed\s+Reserve)\s*'
+            r'\(([A-Z]{2,5})\)\s*[-–,]\s*'
+            r'([A-Za-z][A-Za-z\s]+?)(?:\s+(?:city|town|village|district))?\s*$',
+            re.IGNORECASE,
+        )
+
+        def _replace(m: re.Match) -> str:
+            abbr = m.group(1).upper()
+            place = m.group(2).strip()
+            return f"{place} {abbr}"
+
+        result = _VERBOSE_UNIT.sub(_replace, query)
+
+        # Also handle: "DPO Nandyal" → "Nandyal DPO" (abbreviation before place)
+        result = re.sub(
+            r'\b(DPO|SDPO|PS|UPS)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+            lambda m: f"{m.group(2)} {m.group(1)}",
+            result,
+        )
+
+        return result
+
+    @staticmethod
     def _enrich_followup_query(query: str, state: Dict[str, Any]) -> str:
         """Enrich short contextual follow-ups using previous query state.
 
@@ -882,7 +916,7 @@ class IntelligentQueryHandler:
         history = self._get_history(session_key)
         state = self._get_state(session_key)
         context = context or UserContext(scope_level="state")
-        clean_query = str(query or "").strip()
+        clean_query = self._normalize_verbose_unit_names(str(query or "").strip())
 
         if not clean_query:
             response_text = "Please enter a query."
@@ -1017,17 +1051,30 @@ class IntelligentQueryHandler:
             logger.info("Hybrid router: tool=%s confidence=%.2f source=%s", tool_name, confidence, route_source)
 
             # Post-routing correction: if the query mentions a specific unit/PS/station
-            # but was misrouted to get_personnel_distribution (system-wide), fix it.
-            if tool_name == "get_personnel_distribution":
-                _ps_match = re.search(
-                    r'(?:at|in|of|from)\s+(?:the\s+)?(.+?\b(?:PS|UPS|Police\s+Station|Station|Circle|SDPO)\b)',
-                    clean_query, re.IGNORECASE,
+            # but was misrouted, fix it.
+            _unit_pattern = re.search(
+                r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(DPO|PS|UPS|SDPO|Circle|APSP)\b',
+                enriched_query,
+            )
+            if not _unit_pattern:
+                _unit_pattern = re.search(
+                    r'(?:at|in|of|from|on)\s+(?:the\s+)?(.+?\b(?:PS|UPS|DPO|Police\s+Station|Station|Circle|SDPO)\b)',
+                    enriched_query, re.IGNORECASE,
                 )
-                if _ps_match:
-                    unit_name = _ps_match.group(1).strip()
-                    logger.info("Hybrid: correcting misroute from get_personnel_distribution to query_personnel_by_unit (unit=%s)", unit_name)
+            if _unit_pattern and tool_name in ("get_personnel_distribution", "dynamic_query", "__help__", "search_personnel"):
+                unit_name = _unit_pattern.group(0).strip()
+                # Clean up prepositions
+                unit_name = re.sub(r'^(?:at|in|of|from|on)\s+(?:the\s+)?', '', unit_name, flags=re.IGNORECASE).strip()
+                # Detect intent: "details/info" → search_unit, "personnel/officers/posted" → query_personnel_by_unit
+                if re.search(r'\b(personnel|officer|posted|staff|who|list)\b', enriched_query, re.IGNORECASE):
+                    logger.info("Hybrid: correcting misroute %s -> query_personnel_by_unit (unit=%s)", tool_name, unit_name)
                     tool_name = "query_personnel_by_unit"
                     arguments = {"unit_name": unit_name}
+                    confidence = 0.92
+                else:
+                    logger.info("Hybrid: correcting misroute %s -> search_unit (name=%s)", tool_name, unit_name)
+                    tool_name = "search_unit"
+                    arguments = {"name": unit_name}
                     confidence = 0.92
 
             use_prebuilt = False
