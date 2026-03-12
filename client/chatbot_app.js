@@ -1376,6 +1376,56 @@
 
         await initializeChatThreadsUi();
         initializeAccessState();
+        void loadModelState();
+    }
+
+    // -----------------------------------------------------------------------
+    // Model switcher
+    // -----------------------------------------------------------------------
+
+    let modelProfiles = {};
+    let activeModelId = 'default';
+
+    async function loadModelState() {
+        try {
+            const data = await chatApiFetch('/api/v1/llm-model', { method: 'GET' });
+            modelProfiles = data.profiles || {};
+            activeModelId = data.active || 'default';
+            updateModelUi();
+        } catch (_err) {
+            const nameEl = document.getElementById('modelName');
+            if (nameEl) nameEl.textContent = 'Unavailable';
+        }
+    }
+
+    function updateModelUi() {
+        const nameEl = document.getElementById('modelName');
+        const toggle = document.getElementById('modelToggle');
+        if (!nameEl || !toggle) return;
+
+        const info = modelProfiles[activeModelId];
+        nameEl.textContent = info ? info.label : activeModelId;
+        toggle.checked = activeModelId !== 'default';
+    }
+
+    async function switchModel(useAlternate) {
+        const profileIds = Object.keys(modelProfiles).filter(function (id) { return id !== 'default'; });
+        const targetProfile = useAlternate && profileIds.length ? profileIds[0] : 'default';
+        const nameEl = document.getElementById('modelName');
+        if (nameEl) nameEl.textContent = 'Switching...';
+        try {
+            const data = await chatApiFetch('/api/v1/llm-model', {
+                method: 'POST',
+                body: JSON.stringify({ profile: targetProfile }),
+            });
+            modelProfiles = data.profiles || modelProfiles;
+            activeModelId = data.active || 'default';
+            updateModelUi();
+        } catch (_err) {
+            if (nameEl) nameEl.textContent = 'Error';
+            const toggle = document.getElementById('modelToggle');
+            if (toggle) toggle.checked = !useAlternate;
+        }
     }
 
     window.autoResize = autoResize;
@@ -1384,6 +1434,7 @@
     window.sendPaginationCommand = sendPaginationCommand;
     window.changeResponseBubblePage = changeResponseBubblePage;
     window.toggleCollapse = toggleCollapse;
+    window.switchModel = switchModel;
     window.startPersonnelSearch = startPersonnelSearch;
     window.startNewChat = startNewChat;
     window.sendMessage = sendMessage;

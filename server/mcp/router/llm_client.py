@@ -17,6 +17,48 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _shared_client: Optional[httpx.AsyncClient] = None
 
+# ---------------------------------------------------------------------------
+# Runtime model override — allows switching LLM provider on-the-fly via API.
+# Each entry defines: base_url, api_key, model, is_azure flag.
+# ---------------------------------------------------------------------------
+_MODEL_PROFILES: Dict[str, Dict[str, str]] = {}
+_active_profile: Optional[str] = None  # None = use default env-based config
+
+
+def register_model_profile(
+    profile_id: str,
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    label: str = "",
+) -> None:
+    _MODEL_PROFILES[profile_id] = {
+        "base_url": base_url.rstrip("/"),
+        "api_key": api_key,
+        "model": model,
+        "label": label or profile_id,
+    }
+
+
+def set_active_profile(profile_id: Optional[str]) -> None:
+    global _active_profile
+    if profile_id is not None and profile_id not in _MODEL_PROFILES:
+        raise ValueError(f"Unknown model profile: {profile_id}")
+    _active_profile = profile_id
+
+
+def get_active_profile() -> Optional[str]:
+    return _active_profile
+
+
+def list_model_profiles() -> Dict[str, Dict[str, str]]:
+    """Return profiles with safe metadata (no api keys)."""
+    result: Dict[str, Dict[str, str]] = {"default": {"label": "Default (env)", "model": _get_openai_model()}}
+    for pid, cfg in _MODEL_PROFILES.items():
+        result[pid] = {"label": cfg["label"], "model": cfg["model"]}
+    return result
+
 
 def _get_shared_client() -> httpx.AsyncClient:
     global _shared_client
@@ -183,15 +225,25 @@ async def call_openai_api(
     system: str,
     max_tokens: int = 1024,
 ) -> Optional[str]:
-    openai_api_key = _get_openai_api_key()
-    if not openai_api_key:
-        logger.warning("No OpenAI/Azure OpenAI-compatible API key configured")
-        return None
-    openai_model = _get_openai_model()
-    openai_base_url = _get_openai_base_url()
-    chat_url = _get_openai_chat_url()
-    headers = _build_openai_headers(openai_api_key, openai_base_url)
-    is_azure = _is_azure_openai_compatible_base_url(openai_base_url)
+    # Use runtime profile override if active, otherwise fall back to env config
+    profile = _MODEL_PROFILES.get(_active_profile or "") if _active_profile else None
+    if profile:
+        openai_api_key = profile["api_key"]
+        openai_model = profile["model"]
+        openai_base_url = _normalize_openai_base_url(profile["base_url"])
+        chat_url = f"{openai_base_url.rstrip('/')}/chat/completions"
+        headers = _build_openai_headers(openai_api_key, openai_base_url)
+        is_azure = _is_azure_openai_compatible_base_url(openai_base_url)
+    else:
+        openai_api_key = _get_openai_api_key()
+        if not openai_api_key:
+            logger.warning("No OpenAI/Azure OpenAI-compatible API key configured")
+            return None
+        openai_model = _get_openai_model()
+        openai_base_url = _get_openai_base_url()
+        chat_url = _get_openai_chat_url()
+        headers = _build_openai_headers(openai_api_key, openai_base_url)
+        is_azure = _is_azure_openai_compatible_base_url(openai_base_url)
     payload = {
         "model": openai_model,
         "max_tokens": max_tokens,

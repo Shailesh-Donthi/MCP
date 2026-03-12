@@ -33,7 +33,14 @@ from mcp.core.database import close_mongodb_connection, connect_to_mongodb, get_
 from mcp.core.error_catalog import build_error_payload, normalize_error_code
 from mcp.core.logging_config import configure_logging, log_structured
 from mcp.core.security import decode_access_token
-from mcp.router.llm_client import close_shared_client, has_llm_api_key
+from mcp.router.llm_client import (
+    close_shared_client,
+    get_active_profile,
+    has_llm_api_key,
+    list_model_profiles,
+    register_model_profile,
+    set_active_profile,
+)
 from mcp.schemas.context_schema import UserContext
 from mcp.utils.output_layer import build_output_payload
 from mcp.handlers import get_tool_handler
@@ -392,6 +399,18 @@ async def _startup() -> None:
             redis_client = None
             log_structured(logger, "warning", "v2_redis_unavailable", error=str(error))
 
+    # Register alternative LLM model profiles for runtime switching (from env)
+    from mcp.router.llm_client import _get_env_or_dotenv
+    alt_api_key = _get_env_or_dotenv("ALT_LLM_API_KEY")
+    if alt_api_key:
+        register_model_profile(
+            "gpt5",
+            base_url=_get_env_or_dotenv("ALT_LLM_BASE_URL") or "https://api.openai.com/v1",
+            api_key=alt_api_key,
+            model=_get_env_or_dotenv("ALT_LLM_MODEL") or "gpt-5.2",
+            label=_get_env_or_dotenv("ALT_LLM_LABEL") or "GPT 5.2",
+        )
+
     log_structured(logger, "info", "v2_server_startup", logic_version="v2")
 
 
@@ -638,6 +657,41 @@ async def get_metrics() -> str:
         f"mcp_errors_total {metrics['errors_total']}",
     ]
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# LLM Model Switching
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/llm-model", tags=["Config"])
+async def get_llm_model() -> Dict[str, Any]:
+    active = get_active_profile()
+    profiles = list_model_profiles()
+    return {
+        "active": active or "default",
+        "profiles": profiles,
+    }
+
+
+class SetModelRequest(BaseModel):
+    profile: str
+
+
+@app.post("/api/v1/llm-model", tags=["Config"])
+async def set_llm_model(request: SetModelRequest) -> Dict[str, Any]:
+    profile_id = request.profile if request.profile != "default" else None
+    try:
+        set_active_profile(profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    active = get_active_profile()
+    profiles = list_model_profiles()
+    return {
+        "success": True,
+        "active": active or "default",
+        "profiles": profiles,
+    }
 
 
 @app.get("/api/v1/mcp/tools", tags=["MCP Tools"])
