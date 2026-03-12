@@ -576,14 +576,18 @@ class IntelligentQueryHandler:
         """Detect follow-up queries asking for more info about previous results.
 
         Matches: "give me their info", "show details", "more about them",
-        "tell me about them", "their details", "full info", etc.
+        "tell me about them", "their details", "show their details",
+        "full info", "details please", etc.
         """
         q = str(query or "").lower().strip()
         return bool(re.search(
-            r"\b(?:their|them|his|her|those|these)\b.*\b(?:info|detail|profile|data|record|contact|phone|email|mobile)\b"
-            r"|\b(?:info|detail|profile|full|more|all)\b.*\b(?:about|of|for)\b.*\b(?:them|their|those|these|him|her)\b"
-            r"|\b(?:give|show|get|tell|list)\b.*\b(?:all|full|more|complete)\b.*\b(?:info|detail)\b"
-            r"|\b(?:more|full|complete|all)\s+(?:info|detail|profile|record)s?\b",
+            r"\b(?:their|them|his|her|those|these)\b.*\b(?:info|details?|profiles?|data|records?|contacts?|phone|email|mobile)\b"
+            r"|\b(?:info|details?|profiles?|full|more|all)\b.*\b(?:about|of|for)\b.*\b(?:them|their|those|these|him|her)\b"
+            r"|\b(?:give|show|get|tell|list)\b.*\b(?:all|full|more|complete)\b.*\b(?:info|details?)\b"
+            r"|\b(?:more|full|complete|all)\s+(?:info|details?|profiles?|records?)s?\b"
+            r"|\b(?:show|give|get|tell)\b.*\b(?:their|them)\b"
+            r"|\b(?:show|give|get|list)\b\s+(?:me\s+)?(?:the\s+)?(?:details?|info|profiles?|records?)\b"
+            r"|\bdetails?\s+(?:please|pls)\b",
             q,
         ))
 
@@ -614,6 +618,75 @@ class IntelligentQueryHandler:
                 flags=re.IGNORECASE,
             )
         )
+
+    @staticmethod
+    def _enrich_followup_query(query: str, state: Dict[str, Any]) -> str:
+        """Enrich short contextual follow-ups using previous query state.
+
+        Handles patterns like:
+        - "what about Chittoor?" after "SP of Guntur" → "SP of Chittoor"
+        - "and in Vizag?" after a district query → reuses last tool with new district
+        - "how about DSPs?" after rank query → reuses district with new rank
+        """
+        q = query.strip()
+        last_tool = state.get("last_tool") or ""
+        last_args = state.get("last_arguments") or {}
+
+        if not last_tool or not last_args:
+            return q
+
+        # Pattern: "what about X?" / "and in X?" / "how about X?" / "and X?"
+        swap_match = re.match(
+            r"^(?:what|how|and|or)\s+(?:about|in|for)\s+(.+?)\??$",
+            q, re.IGNORECASE,
+        )
+        if not swap_match:
+            # Also match bare "and X?" or "X?"
+            swap_match = re.match(
+                r"^(?:and\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s*\??$",
+                q,
+            )
+
+        if swap_match:
+            new_entity = swap_match.group(1).strip()
+            # Common rank short-codes for cleaner enriched queries
+            _RANK_SHORT = {
+                "superintendent of police": "SP",
+                "deputy superintendent of police": "DSP",
+                "sub-inspector": "SI", "sub inspector": "SI",
+                "assistant sub-inspector": "ASI",
+                "police constable": "Constable",
+                "head constable": "HC",
+                "inspector general of police": "IGP",
+                "deputy inspector general": "DIG",
+            }
+
+            # If last query was district-based, swap district
+            if last_args.get("district_name") and last_tool in (
+                "query_personnel_by_rank", "list_units_in_district",
+                "get_district_info", "query_personnel_by_unit",
+                "count_vacancies_by_unit_rank",
+            ):
+                rank = last_args.get("rank_name", "")
+                if rank:
+                    short = _RANK_SHORT.get(rank.lower(), rank)
+                    return f"{short} of {new_entity}"
+                return f"officers in {new_entity}"
+
+            # If last query was rank-based, swap rank
+            if last_args.get("rank_name") and last_tool == "query_personnel_by_rank":
+                district = last_args.get("district_name", "")
+                if district:
+                    return f"{new_entity} in {district}"
+                return f"list all {new_entity}"
+
+            # If last query was unit-based, try new unit
+            if last_args.get("unit_name") and last_tool in (
+                "query_personnel_by_unit", "search_unit",
+            ):
+                return f"officers at {new_entity}"
+
+        return q
 
     @staticmethod
     def _suggest_alternate_tool(query: str, failed_tool: str, failed_args: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Any]]:
@@ -933,9 +1006,14 @@ class IntelligentQueryHandler:
                             "history_size": len(history),
                         }
 
+            # ── Contextual follow-up: enrich short queries using previous context ──
+            enriched_query = self._enrich_followup_query(clean_query, state)
+
             tool_name, arguments, understood_query, confidence, route_source = await self._route(
-                clean_query, llm_context, available_tools,
+                enriched_query, llm_context, available_tools,
             )
+            if enriched_query != clean_query:
+                logger.info("Hybrid: enriched query %r -> %r", clean_query, enriched_query)
             logger.info("Hybrid router: tool=%s confidence=%.2f source=%s", tool_name, confidence, route_source)
 
             # Post-routing correction: if the query mentions a specific unit/PS/station
