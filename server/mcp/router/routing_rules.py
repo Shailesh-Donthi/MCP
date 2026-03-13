@@ -28,7 +28,7 @@ def repair_route(
     last_user_query: Optional[str] = None,
     last_assistant_response: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    hierarchy_intent_pattern = r"\b(?:hierarchy|heirarchy|hierachy|structure|tree|organization)\b"
+    hierarchy_intent_pattern = r"\b(?:hierarchy|heirarchy|hierachy|structure|tree|organization|org\s*chart)\b"
 
     def _strip_temporal_tail(value: str) -> str:
         text = re.sub(r"\s+", " ", str(value or "")).strip()
@@ -520,7 +520,7 @@ def repair_route(
 
     asks_for_people = bool(re.search(r"\b(who|which|list|show|get|give|tell|provide|names?)\b", query_lower))
     asks_for_rank_members = bool(
-        re.search(r"\b(?:who|which|list|show|get)\b.*\b(?:constable|si|asi|hc|pc|inspector|dsp|sp|ips|dysp)s?\b", query_lower)
+        re.search(r"\b(?:who|which|list|show|get)\b.*\b(?:constable|si|asi|hc|pc|inspector|ci|dsp|dysp|sp|addl\.?\s*sp|ips|dig|igp)s?\b", query_lower)
     ) or bool(rank_name and re.search(r"\b(?:who|which|list|show|get)\b", query_lower))
     asks_followup_details = bool(
         re.search(r"\b(their|them|they|those|these)\b", query_lower)
@@ -648,13 +648,53 @@ def repair_route(
         return "search_unit", {"name": where_is_target}
 
     # Vacancy queries → count_vacancies_by_unit_rank
+    # Covers #11: "Vacant posts in Guntur DPO" — vacancy + specific unit
     if re.search(r"\b(vacanc(?:y|ies)|vacant\s+posts?)\b", query_lower):
         vacancy_args: Dict[str, Any] = {}
-        if place:
-            vacancy_args["district_name"] = place
-        elif unit_hint:
+        if unit_hint:
             vacancy_args["unit_name"] = unit_hint
+        elif place:
+            vacancy_args["district_name"] = place
         return "count_vacancies_by_unit_rank", vacancy_args
+
+    # #4: "Who reports to the SP of Guntur?" / "subordinates of SP Guntur"
+    if re.search(r"\b(?:reports?\s+to|subordinates?\s+of|under\s+(?:the\s+)?|juniors?\s+(?:of|to|under))\b", query_lower) and rank_name:
+        sub_args: Dict[str, Any] = {"rank_name": rank_name, "rank_relation": "below"}
+        if len(place_hints) >= 2:
+            sub_args["district_names"] = place_hints[:4]
+        elif place:
+            sub_args["district_name"] = place
+        return "query_personnel_by_rank", sub_args
+
+    # #9: "Female officers in Guntur" / "women officers" / "male SIs"
+    if re.search(r"\b(?:female|women|woman|lady|ladies)\b", query_lower) and re.search(r"\b(?:officers?|personnel|personell|staff|people|sis?|asis?|hcs?|pcs?|cis?|dsps?|sps?|inspectors?|constables?)\b", query_lower):
+        gender_intent = f"Find female officers (isMale: false)"
+        if rank_name:
+            gender_intent += f" with rank '{rank_name}'"
+        if place:
+            gender_intent += f" in {place} district"
+        return "dynamic_query", {"intent": gender_intent}
+    if re.search(r"\b(?:male)\b", query_lower) and not re.search(r"\b(?:female|e-?mail)\b", query_lower) and re.search(r"\b(?:officers?|personnel|personell|staff|people|sis?|asis?|hcs?|pcs?|cis?|dsps?|sps?|inspectors?|constables?)\b", query_lower):
+        gender_intent = f"Find male officers (isMale: true)"
+        if rank_name:
+            gender_intent += f" with rank '{rank_name}'"
+        if place:
+            gender_intent += f" in {place} district"
+        return "dynamic_query", {"intent": gender_intent}
+
+    # #5: "Officers retiring this year" / "oldest officers" / "officers born before 1970"
+    if re.search(r"\b(?:retir(?:ing|ement|e|es)|born\s+(?:before|after|in)|age\s+(?:above|below|over|under))\b", query_lower):
+        retire_intent = query.strip()
+        if place and place.lower() not in retire_intent.lower():
+            retire_intent += f" in {place} district"
+        return "dynamic_query", {"intent": retire_intent}
+
+    # #12: "Officers without email" / "personnel with missing phone" — data quality
+    if re.search(r"\b(?:without|missing|no|empty|blank|null)\b", query_lower) and re.search(r"\b(?:email|e-?mail|mobile|phone|contact|address|dob|date\s+of\s+birth)\b", query_lower):
+        dq_intent = query.strip()
+        if place and place.lower() not in dq_intent.lower():
+            dq_intent += f" in {place} district"
+        return "dynamic_query", {"intent": dq_intent}
 
     # Rank + 'each district' pattern → query_personnel_by_rank with no district filter
     if (
@@ -666,8 +706,20 @@ def repair_route(
             each_args["rank_relation"] = rank_relation
         return "query_personnel_by_rank", each_args
 
-    # Transfer queries → query_recent_transfers
+    # #6: Transfer with source+destination → dynamic_query
+    # "Transfers from Guntur to Chittoor" needs both source and destination.
     if re.search(r"\b(transfers?|posting|postings|movement)\b", query_lower):
+        from_to_match = re.search(
+            r"\b(?:from|out\s+of)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,2})\s+(?:to|into)\s+([A-Za-z]+(?:\s+[A-Za-z]+){0,2})\b",
+            query, re.IGNORECASE,
+        )
+        if from_to_match:
+            src = _sanitize_district_value(from_to_match.group(1))
+            dst = _sanitize_district_value(from_to_match.group(2))
+            if src and dst:
+                return "dynamic_query", {"intent": f"Transfers from {src} district to {dst} district"}
+
+        # Single-district transfer → query_recent_transfers
         transfer_args: Dict[str, Any] = {}
         transfer_place = _sanitize_district_value(
             _extract_transfer_place(primary_query or query) or _extract_transfer_place(query) or place
@@ -678,7 +730,6 @@ def repair_route(
         if days_match:
             transfer_args["days"] = int(days_match.group(1))
         else:
-            # Also guard "last 30 days" form
             last_match = re.search(r"\blast\s+(\d+)\s*days?\b", query_lower)
             if last_match:
                 transfer_args["days"] = int(last_match.group(1))
@@ -700,6 +751,25 @@ def repair_route(
             village_cov_args["unit_name"] = unit_candidate
         return "get_village_coverage", village_cov_args
 
+
+    # #7: "How many PS in Guntur?" / "count of stations in Guntur" — unit type count
+    _unit_type_map = {
+        r"\b(?:ps|police\s+stations?|stations?)\b": "PS",
+        r"\b(?:dpos?|district\s+police\s+offices?)\b": "DPO",
+        r"\b(?:circles?)\b": "Circle",
+        r"\b(?:sub[\s-]?divisions?)\b": "Sub-Division",
+        r"\b(?:ups|urban\s+police\s+stations?)\b": "UPS",
+    }
+    if re.search(r"\b(?:how\s+many|count|total|number)\b", query_lower) and not rank_name:
+        for ut_pat, ut_name in _unit_type_map.items():
+            if re.search(ut_pat, query_lower):
+                ut_args: Dict[str, Any] = {"unit_type_name": ut_name}
+                if place:
+                    ut_args["district_name"] = place
+                    return "list_units_in_district", ut_args
+                else:
+                    return "dynamic_query", {"intent": f"Count all units of type {ut_name} in the system"}
+                break
 
     if (
         re.search(r"\b(?:list|show|get|find)\b", query_lower)
@@ -768,6 +838,15 @@ def repair_route(
             return "get_unit_hierarchy", {"root_unit_name": unit_hint}
         if hierarchy_place:
             return "get_unit_hierarchy", {"district_name": hierarchy_place}
+        # #8: Bare "org chart" / "AP police structure" with no district/unit specified
+        return "dynamic_query", {"intent": "Show the top-level organizational hierarchy of AP Police (State > Ranges > Districts)"}
+
+    # #10: "SDPO wise distribution" / "PS wise officer count" — group-by unit type
+    if re.search(r"\b(?:sdpo|ps|circle|sub[\s-]?division|range|dpo)\s*[-\s]?\s*wise\b", query_lower) and re.search(r"\b(?:distribution|count|strength|breakdown|officers?|personnel|personell)\b", query_lower):
+        groupby_intent = query.strip()
+        if place and place.lower() not in groupby_intent.lower():
+            groupby_intent += f" in {place} district"
+        return "dynamic_query", {"intent": groupby_intent}
 
     if asks_ratio_query and rank_hints:
         ratio_args: Dict[str, Any] = {"group_by": "rank"}
@@ -823,6 +902,18 @@ def repair_route(
 
     if person_hint and asks_person_attribute:
         return "search_personnel", {"name": person_hint}
+
+    # "Contact details of all DSPs" / "Email of SIs in Guntur" — rank +
+    # person-attribute without a specific person name.
+    if rank_name and asks_person_attribute and not person_hint:
+        rank_attr_args: Dict[str, Any] = {"rank_name": rank_name, "page_size": 200}
+        if rank_relation != "exact":
+            rank_attr_args["rank_relation"] = rank_relation
+        if len(place_hints) >= 2:
+            rank_attr_args["district_names"] = place_hints[:4]
+        elif place:
+            rank_attr_args["district_name"] = place
+        return "query_personnel_by_rank", rank_attr_args
 
     if asks_unit_leader_name:
         role_unit = (
@@ -895,7 +986,7 @@ def repair_route(
             return "query_personnel_by_rank", args_followup
 
     if re.search(r"\bdistrict\s*[- ]?\s*wise\b", query_lower) and (
-        rank_name or re.search(r"\b(si|asi|hc|pc|constable|inspector|dsp|sp|dysp)\b", query_lower)
+        rank_name or re.search(r"\b(si|asi|hc|pc|constable|inspector|ci|dsp|dysp|sp|addl\.?\s*sp|ips|dig|igp)\b", query_lower)
     ):
         fixed_args = {"group_by": "district"}
         if place:
@@ -909,6 +1000,18 @@ def repair_route(
         elif unit_hint:
             dist_args["unit_name"] = unit_hint
         return "get_personnel_distribution", dist_args
+
+    # "How many SIs are there?" / "How many DSPs in Guntur?" — rank count
+    # without a personnel/officers keyword (which asks_distribution_query needs).
+    if rank_name and re.search(r"\bhow\s+many\b", query_lower):
+        rank_count_args: Dict[str, Any] = {"rank_name": rank_name}
+        if rank_relation != "exact":
+            rank_count_args["rank_relation"] = rank_relation
+        if len(place_hints) >= 2:
+            rank_count_args["district_names"] = place_hints[:4]
+        elif place:
+            rank_count_args["district_name"] = place
+        return "query_personnel_by_rank", rank_count_args
 
     # Catalog/list intent like "info on all districts" should not drift into
     # person search even if generic extractors capture "all districts".

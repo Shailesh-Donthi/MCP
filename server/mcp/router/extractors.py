@@ -19,8 +19,11 @@ COMMON_QUERY_TYPO_MAP: Dict[str, str] = {
 }
 
 RANK_PATTERNS: List[Tuple[str, str]] = [
+    (r"\baddl\.?\s*sps?\b", "Additional Superintendent of Police"),
+    (r"\badditional\s+superintendent\s+of\s+police\b", "Additional Superintendent of Police"),
     (r"\bcircle\s+inspectors?\b", "Circle Inspector"),
     (r"\binspector\s+general\s+of\s+police\b", "Inspector General of Police"),
+    (r"\bdeputy\s+inspector\s+general\b", "Deputy Inspector General"),
     (r"\bdeputy\s+superintendent\s+of\s+police\b", "Deputy Superintendent of Police"),
     (r"\bsuperintendent\s+of\s+police\b", "Superintendent of Police"),
     (r"\bassistant\s+sub[-\s]?inspectors?\b", "Assistant SubInspector"),
@@ -30,14 +33,18 @@ RANK_PATTERNS: List[Tuple[str, str]] = [
     (r"\bhead\s+constables?\b", "Head Constable"),
     (r"\bconstables?\b", "Constable"),
     (r"\binspectors?\b", "Inspector"),
-    (r"\bsi\b", "Sub-Inspector"),
-    (r"\bsis\b", "Sub-Inspector"),
-    (r"\basi\b", "Assistant Sub-Inspector"),
-    (r"\bhc\b", "Head Constable"),
-    (r"\bpc\b", "Police Constable"),
-    (r"\bdysp\b", "Deputy Superintendent of Police"),
-    (r"\bdsp\b", "Deputy Superintendent of Police"),
-    (r"\bsp\b", "Superintendent of Police"),
+    (r"\bsis?\b", "Sub-Inspector"),
+    (r"\basis?\b", "Assistant Sub-Inspector"),
+    (r"\bhcs?\b", "Head Constable"),
+    (r"\bpcs?\b", "Police Constable"),
+    (r"\bcis?\b", "Circle Inspector"),
+    (r"\bdigsps?\b", "Deputy Inspector General"),  # DIGSP variant
+    (r"\bdigs?\b", "Deputy Inspector General"),
+    (r"\bigps?\b", "Inspector General of Police"),
+    (r"\bdysps?\b", "Deputy Superintendent of Police"),
+    (r"\bdsps?\b", "Deputy Superintendent of Police"),
+    (r"\bsps?\b", "Superintendent of Police"),
+    (r"\bips\b", "IPS"),
 ]
 
 _PLACE_FILLER_WORDS = {
@@ -56,8 +63,9 @@ _PLACE_FILLER_WORDS = {
     "sdpo", "spdo", "sho", "head", "incharge", "charge", "dpo", "reporting",
     "ps",
     "work", "working",
-    "si", "sis", "asi", "hc", "pc",
-    "asis",
+    "si", "sis", "asi", "asis", "hc", "hcs", "pc", "pcs",
+    "ci", "cis", "dsp", "dsps", "dysp", "dysps", "sp", "sps",
+    "dig", "digs", "igp", "igps", "ips", "addl",
     "inspector", "inspectors", "constable", "constables",
     "circle", "sub", "sub-inspector", "subinspector",
     "date", "birth", "earliest", "oldest", "latest",
@@ -333,6 +341,12 @@ def extract_person_hint(text: str) -> Optional[str]:
                 value,
                 re.IGNORECASE,
             ):
+                # Reject rank abbreviations captured as person names
+                # e.g. "Email of SIs in Guntur" → "SIs in Guntur" is not a person.
+                first_word = re.split(r"\s+", value)[0].lower().rstrip("s")
+                rank_abbrs = {"si", "asi", "hc", "pc", "ci", "dsp", "dysp", "sp", "dig", "igp", "ips", "addl"}
+                if first_word in rank_abbrs:
+                    continue
                 return value
     return None
 
