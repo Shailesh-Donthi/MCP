@@ -129,6 +129,18 @@ class DynamicQueryOrchestrator:
             logger.info("DynamicQuery turn %d action: %s", turn, json.dumps(action_obj, default=str)[:500])
             op_result = await self._dispatch(action_obj, context)
             logger.info("DynamicQuery turn %d result count: %s", turn, op_result.get("count", "n/a"))
+
+            # Guide the LLM when a valid query returns zero results
+            if op_result.get("count") == 0 and action in ("find", "aggregate") and "error" not in op_result:
+                op_result["_hint"] = (
+                    "0 results returned. Before calling done with 'no data found', consider: "
+                    "(1) Is your $regex case-insensitive ($options:'i')? "
+                    "(2) For FK fields (ending in Id), did you resolve the name to an ObjectId first? "
+                    "(3) Did you include isDelete:false? "
+                    "(4) On assignment_master, did you filter isActive:true? "
+                    "Try adjusting your query before giving up."
+                )
+
             result_json = json.dumps(op_result, default=str)
             if len(result_json) > 8000:
                 result_json = result_json[:8000] + "...[truncated]"
@@ -175,10 +187,22 @@ class DynamicQueryOrchestrator:
             return {"error": f"Unknown action '{action}'. Use describe_collections, find, aggregate, or done."}
 
         except QueryValidationError as exc:
-            return {"error": str(exc)}
+            return {"error": str(exc), "hint": "Check collection name, field names, and operator syntax."}
         except Exception as exc:
+            error_msg = str(exc)
+            hints = []
+            if "FieldPath" in error_msg or "field path" in error_msg.lower():
+                hints.append("A field name in your pipeline is incorrect. Check field names against the schema.")
+            if "unrecognized" in error_msg.lower() or "unknown" in error_msg.lower():
+                hints.append("An operator or stage name is not recognized. Check MongoDB syntax.")
+            if "ObjectId" in error_msg or "$oid" in error_msg:
+                hints.append("ObjectId format issue. Use a plain 24-char hex string for _id and FK fields.")
+            if "$lookup" in error_msg:
+                hints.append("$lookup failed. Verify 'from', 'localField', 'foreignField', and 'as' are correct.")
+            if not hints:
+                hints.append("Try simplifying the query or breaking it into smaller steps.")
             logger.exception("DynamicQuery dispatch error for action '%s': %s", action, exc)
-            return {"error": "Query execution failed. Try a different approach."}
+            return {"error": f"Query failed: {error_msg[:300]}", "hints": hints}
 
 
 def _parse_action(raw: str) -> Optional[Dict[str, Any]]:

@@ -242,6 +242,51 @@ _RULES = """\
 12. When the user asks to "list all" or "show all", return individual records with names/details — do NOT return counts or group-by summaries unless explicitly asked for counts. Use a $limit of 500. Do NOT use small limits like 10 or 50 for listing queries. For $count/$group queries, omit $limit entirely so all records are counted.
 13. NEVER include raw ObjectIDs (24-character hex strings) in your final "done" answer. Always resolve ALL foreign keys to their actual names using $lookup BEFORE answering. For personnel queries, always $lookup: rankId->rank_master.name, departmentId->department_master.name, and via assignment_master: unitId->unit_master.name, unit_master.districtId->district_master.name, designationId->designation_master.name. If a name cannot be resolved, omit the field — do NOT show the raw ID.
 14. In your final "done" answer, always echo back the key entities from the user's question (district names, rank names, unit names, person names). For example, if the user asks about "Chittoor district", your answer must mention "Chittoor". If no results found, still mention the queried entity (e.g. "No ASI personnel found in Annamayya district" not just "No records found").
+
+## Query Strategy Templates
+Use these proven patterns for common query types instead of guessing.
+
+### Pattern A: Personnel by rank in a district
+Step 1 - get the district ObjectId:
+  find on district_master: {"name":{"$regex":"Chittoor","$options":"i"},"isDelete":false}, projection: {"_id":1}
+Step 2 - aggregate from assignment_master:
+  $match: {"isActive":true,"isDelete":false}
+  $lookup: {"from":"unit_master","localField":"unitId","foreignField":"_id","as":"unit"}
+  $unwind: "$unit"
+  $match: {"unit.districtId":<district_oid_from_step1>}
+  $lookup: {"from":"personnel_master","localField":"userId","foreignField":"_id","as":"person"}
+  $unwind: "$person"
+  $lookup: {"from":"rank_master","localField":"person.rankId","foreignField":"_id","as":"rank"}
+  $unwind: "$rank"
+  $match: {"rank.shortCode":"<RANK>"}  (or use "rank.name" with $regex for full name)
+  $project: {"name":"$person.name","rank":"$rank.name","unit":"$unit.name"}
+
+### Pattern B: Count personnel by rank per district
+Same as Pattern A but replace the final $project with:
+  $group: {"_id":"$district.name","count":{"$sum":1}}
+  $sort: {"count":-1}
+(Add $lookup district_master on unit.districtId before $group)
+
+### Pattern C: Personnel by designation (SDPO, SHO, etc.)
+Designation != rank. Designation is in designation_master. Use:
+  aggregate on assignment_master:
+  $match: {"isActive":true,"isDelete":false}
+  $lookup: {"from":"designation_master","localField":"designationId","foreignField":"_id","as":"desig"}
+  $unwind: "$desig"
+  $match: {"desig.name":{"$regex":"SDPO","$options":"i"}}
+  $lookup personnel_master on userId, $lookup unit_master on unitId
+  $project: {"name":"$person.name","designation":"$desig.name","unit":"$unit.name"}
+
+### Pattern D: Resolve a district name to ObjectId (prerequisite for district-filtered queries)
+  find on district_master: {"name":{"$regex":"<name>","$options":"i"},"isDelete":false}
+  Use the returned _id in subsequent $match stages on districtId fields.
+
+### Strategy tips
+- assignment_master is the HUB table connecting personnel to units. Start there for "who is posted where" queries.
+- Rank (rank_master) = pay/seniority level (SI, DSP, SP). Designation (designation_master) = functional role (SHO, SDPO). They are SEPARATE.
+- Always use case-insensitive $regex for name matching: {"$regex":"...","$options":"i"}.
+- When 0 results: check field names, regex case, ObjectId resolution, isDelete:false filter.
+- For "how many" queries, use $group + $count instead of fetching all docs.
 """
 
 

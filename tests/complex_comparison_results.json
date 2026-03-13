@@ -1,0 +1,474 @@
+{
+  "summary": {
+    "smart_ai_passed": 23,
+    "mcp_passed": 11,
+    "total": 23,
+    "smart_ai_accuracy": 100.0,
+    "mcp_accuracy": 47.8,
+    "smart_ai_avg_time": 10.24,
+    "mcp_avg_time": 7.8
+  },
+  "per_query": [
+    {
+      "name": "ranges_in_ap",
+      "query": "How many Ranges are there in AP?",
+      "category": "Domain terminology",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 2.24,
+        "route_source": "hybrid_dynamic",
+        "response": "I’m sorry, but the system does not contain any data on police “Ranges” for Andhra Pradesh, so I can’t provide a count."
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 3.92,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "sp_of_guntur",
+      "query": "Who is the SP of Guntur district?",
+      "category": "Domain terminology",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 2.19,
+        "route_source": "hybrid_tool:llm",
+        "response": "The Superintendent of Police (SP) personnel for Guntur district are:\n\n- **Malika Garg** – SP, Technical Services (Guntur)  \n- **Surya Kotha** – SP, Technical Services (Guntur)  \n- **Vakul Jindal** – SP, Guntur DPO (Guntur)"
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 1.32,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "dpo_units",
+      "query": "List all DPO units in the system",
+      "category": "Domain terminology",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 9.86,
+        "route_source": "hybrid_dynamic",
+        "response": "The system contains 26 DPO (District Police Office) units:\n\n1. Bapatla DPO (Code: LO-DPO-BAP-SPBAP)\n2. Markapuram DPO (Code: LO-DPO-MKPM-SPMKPM)\n3. Polavaram DPO (Code: LO-DPO-PLVM-SPPLVM)\n4. Sri Potti Sriramulu Nellore DPO (Code: LO-DPO-SPN-SPSPN)\n5. Ananthapuram DPO (Code: LO-DPO-ATP-SPATP)\n6. Alluri Sitharama Raju DPO (Code: LO-DPO-ASR-SPASR)\n7. Chittoor DPO (Code: LO-DPO-CTR-SPCT)\n8. Kurnool DPO (Code: LO-DPO-KNL-SPKNL)\n9. Anakapalli DPO (Code: LO-DPO-AKP-SPAKP)\n10. Dr B R Ambedkar Konaseema DPO (Code: LO-DPO-KNM-SPKNM)\n11. East Godavari DPO (Code: LO-DPO-EG-SPEG)\n12. Eluru DPO (Code: LO-DPO-ELR-SPELR)\n13. Krishna DPO (Code: LO-DPO-KRI-SPKRI)\n14. Guntur DPO (Code: LO-DPO-GNT-SPOG)\n15. YSR Kadapa DPO (Code: LO-DPO-KDP-SPKDP)\n16. Kakinada DPO (Code: LO-DPO-KKD-SPKKD)\n17. Nandyal DPO (Code: LO-DPO-NDL-SPNDL)\n18. Palnadu DPO (Code: LO-DPO-PLD-SPPLD)\n19. Tirupathi DPO (Code: LO-DPO-TPTY-SPTPTY)\n20. Annamayya DPO (Code: LO-DPO-ANMY-ANMY)\n21. Sri Sathya Sai DPO (Code: LO-DPO-SSS-SPSSS)\n22. Vizianagaram DPO (Code: LO-DPO-VZM-SPVZM)\n23. Srikakulam DPO (Code: LO-DPO-SKLM-SPSKLM)\n24. Prakasam DPO (Code: LO-DPO-PRK-SPPRK)\n25. West Godavari DPO (Code: LO-DPO-WG-SPWG)\n26. Parvathipuram Manyam DPO (Code: LO-DPO-PRMY-SPPRMY)\n\nThese are all the DPO units currently recorded in the system."
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 7.6,
+        "route_source": "mcp_mode",
+        "response": "The system contains 26 DPO (District Police Office) units. Here are their names, codes, and associated districts:\n1. Bapatla DPO – Code: LO-DPO-BAP-SPBAP – District: Bapatla\n2. Markapuram DPO – Code: LO-DPO-MKPM-SPMKPM – District: Markapuram\n3. Polavaram DPO – Code: LO-DPO-PLVM-SPPLVM – District: Polavaram\n4. Sri Potti Sriramulu Nellore DPO – Code: LO-DPO-SPN-SPSPN – District: Sri Potti Sriramulu Nellore\n5. Ananthapuram DPO – Code: LO-DPO-ATP-SPATP – District: Ananthapuram\n6. Alluri Sitharama Raju DPO – Code: LO-DPO-ASR-SPASR – District: Alluri Sitharama Raju\n7. Chittoor DPO – Code: LO-DPO-CTR-SPCT – District: Chittoor\n8. Kurnool DPO – Code: LO-DPO-KNL-SPKNL – District: Kurnool\n9. Anakapalli DPO – Code: LO-DPO-AKP-SPAKP – District: Anakapalli\n10. Dr B R Ambedkar Konaseema DPO – Code: LO-DPO-KNM-SPKNM – District: Dr. B R Ambedkar Konaseema\n11. East Godavari DPO – Code: LO-DPO-EG-SPEG – District: East Godavari\n12. Eluru DPO – Code: LO-DPO-ELR-SPELR – District: Eluru\n13. Krishna DPO – Code: LO-DPO-KRI-SPKRI – District: Krishna\n14. Guntur DPO – Code: LO-DPO-GNT-SPOG – District: Guntur\n15. YSR Kadapa DPO – Code: LO-DPO-KDP-SPKDP – District: YSR Kadapa\n16. Kakinada DPO – Code: LO-DPO-KKD-SPKKD – District: Kakinada\n17. Nandyal DPO – Code: LO-DPO-NDL-SPNDL – District: Nandyal\n18. Palnadu DPO – Code: LO-DPO-PLD-SPPLD – District: Palnadu\n19. Tirupathi DPO – Code: LO-DPO-TPTY-SPTPTY – District: Tirupathi\n20. Annamayya DPO – Code: LO-DPO-ANMY-ANMY – District: Annamayya\n21. Sri Sathya Sai DPO – Code: LO-DPO-SSS-SPSSS – District: Sri Sathya Sai\n22. Vizianagaram DPO – Code: LO-DPO-VZM-SPVZM – District: Vizianagaram\n23. Srikakulam DPO – Code: LO-DPO-SKLM-SPSKLM – District: Srikakulam\n24. Prakasam DPO – Code: LO-DPO-PRK-SPPRK – District: Prakasam\n25. West Godavari DPO – Code: LO-DPO-WG-SPWG – District: West Godavari\n26. Parvathipuram Manyam DPO – Code: LO-DPO-PRMY-SPPRMY – District: Parvathipuram Manyam"
+      }
+    },
+    {
+      "name": "sdpo_in_chittoor",
+      "query": "Who are the SDPOs in Chittoor?",
+      "category": "Domain terminology",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 21.34,
+        "route_source": "hybrid_dynamic",
+        "response": "No SDPO personnel were found posted in Chittoor district."
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 18.97,
+        "route_source": "mcp_mode",
+        "response": "No SDPOs were found assigned to units in the Chittoor district."
+      }
+    },
+    {
+      "name": "ars_in_system",
+      "query": "List all Additional SPs in the system",
+      "category": "Domain terminology",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 19.98,
+        "route_source": "hybrid_dynamic",
+        "response": "Here are the Additional Superintendents of Police (including the non‑cadre variant) currently recorded in the system:\n\n1. Madharapu Venkatadri – Badge No: 9802 – Unit: Annamayya DPO – District: Annamayya – Department: Law & Order Wing\n2. K Supraja – No badge number – Unit: Guntur DPO – District: Guntur – Department: Law & Order Wing\n3. A. T. V Ravi Kumar – No badge number – Unit: Guntur DPO – District: Guntur – Department: Law & Order Wing\n4. G V. Ramana Murthy – No badge number – Unit: Guntur DPO – District: Guntur – Department: Law & Order Wing\n5. Suresh Reddy – Badge No: 963852 – Rank: Additional Superintendent of Police (Non-Cadre) – Unit: APSP Head Office – District: Guntur – Department: Special Armed Reserve Central Police Lines\n\nThese entries represent all personnel with the rank \"Additional Superintendent of Police\" or \"Additional Superintendent of Police (Non-Cadre)\" in the database."
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 17.47,
+        "route_source": "mcp_mode",
+        "response": "There are no Additional SP entries in the system; all assignment records have an empty additionalPermissions field."
+      }
+    },
+    {
+      "name": "ci_in_guntur",
+      "query": "List all Circle Inspectors posted in Guntur district with their names",
+      "category": "Multi-join",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 13.51,
+        "route_source": "hybrid_dynamic",
+        "response": "Circle Inspectors posted in Guntur district:\n- A. V. Brahmam (Mangalagiri Rural Circle)\n- Akula Ashok Kumar (Guntur Traffic PS)\n- Adusumalli Venkata Siva Prasad (Lalapet PS)\n- Yallanti Srihari (DSB)\n- K. Arogya Raju (Arundelpet PS)\n- Rambabu Chimala (DSB)\n- Alahari Srinivas (DSB)\n- Anumula Siva Sankar (PCR, Guntur)\n- Talluri Peda Narayana Swamy (Pedakakani PS)\n- Kandepu Vamsidhar (Nallapadu PS)\n- Medarametla Veeraiah (Kothapet PS)\n- Ganga Venkateswarlu (Pattabhipuram PS)\n- Shaik Nagoormeerasaheb (Medikonduru PS)\n- Sk. Bilaluddin (PGRS)\n- Kamatam Venkata Prasad (Old guntur PS)\n- Kommanaboyina Veera Swamy (Mangalagiri Town PS)\n- Yendrapu Satyanarayana (Nagarampalem PS)\n- Karamthodu Ramula Nayak (Tenali II Town PS)\n- Konka Sreenivasa Rao (Thulluru PS)\n- Chittela Singaiah (Guntur Traffic PS)\n- K. Siva Ramakrishna (Phirangipuram PS)\n- Poondla Krishnaiah (Ponnur Rural Circle)\n- Shaik Nayab Rasool (Tenali Rural Circle)\n- Kannoju Vasu (Tadikonda PS)\n- Badepudi Koteswara Rao (Thulluru Traffic PS)\n- Singirepu Srinivasa Rao (Tenali III Town PS)\n- Gannavarapu Srinivasa Rao (Prathipadu Circle)\n- Lavuri Veera Naik (Ponnur Town PS)\n- Purimitla Veerendra Babu (Tadepalli PS)\n- M Srinivasa Rao (Thulluru PS)\n- Guthi Venkata Rao (Thulluru Traffic PS)\n- Ernala Narayana (Guntur Mahila PS)\n- Mudhavath Rama Nayak (Vatticherukuru PS)\n- Veeranki Mallikharjunarao (Tenali I Town PS)\n- D. Naresh (Tadepalli Traffic PS)"
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 7.89,
+        "route_source": "mcp_mode",
+        "response": "The system found 35 Circle Inspectors posted in Guntur district. Their names and the units they are posted to are:\n1. A.V. Brahmam – Mangalagiri Rural Circle\n2. Akula Ashok kumar – Guntur Traffic PS\n3. Adusumalli Venkata Siva Prasad – Lalapet PS\n4. Yallanti Srihari – DSB\n5. K.Arogya Raju – Arundelpet PS\n6. Rambabu Chimala – DSB\n7. Alahari Srinivas – DSB\n8. Anumula Siva Sankar – PCR, Guntur\n9. Talluri Peda Narayana Swamy – Pedakakani PS\n10. Kandepu Vamsidhar – Nallapadu PS\n11. Medarametla Veeraiah – Kothapet PS\n12. Ganga Venkateswarlu – Pattabhipuram PS\n13. Shaik NagoorMeeraSaheb – Medikonduru PS\n14. Sk.Bilaluddin – PGRS\n15. Kamatam Venkata Prasad – Old guntur PS\n16. Kommanaboyina Veera Swamy – Mangalagiri Town PS\n17. Yendrapu Satyanarayana – Nagarampalem PS\n18. Karamthodu Ramula Nayak – Tenali II Town PS\n19. Konka Sreenivasa Rao – Thulluru PS\n20. Chittela Singaiah – Guntur Traffic PS\n21. K. Siva Ramakrishna – Phirangipuram PS\n22. Poondla Krishnaiah – Ponnur Rural Circle\n23. Shaik Nayab Rasool – Tenali Rural Circle\n24. Kannoju Vasu – Tadikonda PS\n25. Badepudi Koteswara Rao – Thulluru Traffic PS\n26. Singirepu Srinivasa Rao – Tenali III Town PS\n27. Gannavarapu Srinivasa Rao – Prathipadu Circle\n28. Lavuri Veera Naik – Ponnur Town PS\n29. Purimitla Veerendra Babu – Tadepalli PS\n30. M Srinivasa Rao – Thulluru PS\n31. Guthi Venkata Rao – Thulluru Traffic PS\n32. Ernala Narayana – Guntur Mahila PS\n33. Mudhavath Rama Nayak – Vatticherukuru PS\n34. Veeranki Mallikharjunarao – Tenali I Town PS\n35. D. Naresh – Tadepalli Traffic PS"
+      }
+    },
+    {
+      "name": "dsp_with_units",
+      "query": "Show all DSPs with their current posting units and districts",
+      "category": "Multi-join",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 13.35,
+        "route_source": "hybrid_dynamic",
+        "response": "Here are all Deputy Superintendents of Police (DSPs) with their current posting units and districts:\n\n1. SAKE MAHENDRA (Badge No: 9861) – Unit: Madanapalle SDPO, District: Annamayya\n2. M R Krishna Mohan (Badge No: 546) – Unit: Rayachoty SDPO, District: Annamayya\n3. T SAINATH (Badge No: 5648) – Unit: Chittoor SDPO, District: Chittoor\n4. DEGALA PRABHAKAR (Badge No: 5229) – Unit: Palamaner SDPO, District: Chittoor\n5. JAVANGULA RAMBABU (Badge No: 5231) – Unit: DTC, Chittoor, District: Chittoor\n6. PARTHA SARADHI BANDARU (Badge No: 5564) – Unit: Kuppam SDPO, District: Chittoor\n7. SYED MOHAMMAD AZEEZ (Badge No: 5232) – Unit: Nagari SDPO, District: Chittoor\n8. Bellam Srinivasa Rao (Badge No: N/A) – Unit: Guntur Traffic PS, District: Guntur\n9. Takkellapati Murali krishna (Badge No: N/A) – Unit: Thulluru Sub Division, District: Guntur\n10. Shaik Abdul Azeez (Badge No: N/A) – Unit: East Sub Division, District: Guntur\n11. Chitikina Murali Krishna (Badge No: N/A) – Unit: North Sub Division, District: Guntur\n12. Budireddy Janardhana Rao (Badge No: N/A) – Unit: Tenali Sub Division, District: Guntur\n13. Gondesi Bhanodaya (Badge No: N/A) – Unit: South Sub Division, District: Guntur\n14. K. Aravind (Badge No: N/A) – Unit: West Sub Division, District: Guntur\n15. Dwarampudi Srinivasa Reddy (Badge No: N/A) – Unit: Guntur Mahila PS, District: Guntur\n16. P Bhavana (Badge No: N/A) – Unit: Technical Services, District: Guntur"
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 18.22,
+        "route_source": "mcp_mode",
+        "response": "Deputy Superintendents of Police (DSP) with their current posting units and districts:\n\n1. Name: P Bhavana | Badge No: N/A | Unit: Technical Services | District: Guntur\n2. Name: Bellam Srinivasa Rao | Badge No: N/A | Unit: Guntur Traffic PS | District: Guntur\n3. Name: K. Aravind | Badge No: N/A | Unit: West Sub Division | District: Guntur\n4. Name: Takkellapati Murali krishna | Badge No: N/A | Unit: Thulluru Sub Division | District: Guntur\n5. Name: Chitikina Murali Krishna | Badge No: N/A | Unit: North Sub Division | District: Guntur\n6. Name: Budireddy Janardhana Rao | Badge No: N/A | Unit: Tenali Sub Division | District: Guntur\n7. Name: Dwarampudi Srinivasa Reddy | Badge No: N/A | Unit: Guntur Mahila PS | District: Guntur\n8. Name: Gondesi Bhanodaya | Badge No: N/A | Unit: South Sub Division | District: Guntur\n9. Name: JAVANGULA RAMBABU | Badge No: 5231 | Unit: DTC, Chittoor | District: Chittoor\n10. Name: M R Krishna Mohan | Badge No: 546 | Unit: Rayachoty SDPO | District: Annamayya\n11. Name: SYED MOHAMMAD AZEEZ | Badge No: 5232 | Unit: Nagari SDPO | District: Chittoor\n12. Name: PARTHA SARADHI BANDARU | Badge No: 5564 | Unit: Kuppam SDPO | District: Chittoor\n13. Name: SAKE MAHENDRA | Badge No: 9861 | Unit: Madanapalle SDPO | District: Annamayya\n14. Name: Shaik Abdul Azeez | Badge No: N/A | Unit: East Sub Division | District: Guntur\n15. Name: T SAINATH | Badge No: 5648 | Unit: Chittoor SDPO | District: Chittoor\n16. Name: DEGALA PRABHAKAR | Badge No: 5229 | Unit: Palamaner SDPO | District: Chittoor\n\n(Note: Personnel without a current active assignment, such as Bandhar Vallamsetty Madhusudana Rao, are excluded from this list.)"
+      }
+    },
+    {
+      "name": "hc_count_per_district",
+      "query": "How many Head Constables are there in each district?",
+      "category": "Multi-join",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 7.73,
+        "route_source": "hybrid_tool:llm",
+        "response": "- **Chittoor district** – 11 Head Constables"
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 5.32,
+        "route_source": "mcp_mode",
+        "response": "There are Head Constables in 11 districts. The counts are: Tirupathi – 2, West Godavari – 1, Chittoor – 210, Annamayya – 145, NTR – 1, Anakapalli – 1, Nandyal – 2, Prakasam – 1, Krishna – 1, Ananthapuram – 1, and Guntur – 311."
+      }
+    },
+    {
+      "name": "person_by_name_detail",
+      "query": "Find all details of Nakka Venkata Srinivasarao",
+      "category": "Multi-join",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 1.04,
+        "route_source": "hybrid_tool:llm",
+        "response": "Found 1 matching personnel record(s) with full details:\n\n1. Nakka Venkata Srinivasarao\n   - User ID: 14138853\n   - Badge No: N/A\n   - Rank: Head Constable (HC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Tenali III Town PS (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1972-05-25\n   - Mobile: +919293335999\n   - Email: srinivasvarma1507@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Tenali III Town PS (Guntur)\n     * Tenali Rural PS (Guntur)"
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 2.59,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "rank_distribution_chittoor",
+      "query": "What is the rank-wise distribution of officers in Chittoor district?",
+      "category": "Aggregation",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 2.19,
+        "route_source": "hybrid_tool:llm",
+        "response": "**Chittoor district – rank‑wise officer distribution**\n\n- Police Constable: 553  \n- Head Constable: 210  \n- Assistant Sub‑Inspector: 79  \n- Sub Inspector: 51  \n- Circle Inspector: 24  \n- Deputy Superintendent of Police: 5  \n- Inspector of Police: 1  \n- Officer on Special Duty: 1  \n- Superintendent of Police: 1  \n- Inspector General of Police: 1  \n\nTotal officers: 926."
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 7.13,
+        "route_source": "mcp_mode",
+        "response": "In the Chittoor district, the current active assignments show the following rank‑wise distribution of officers:\n\n- Police Constable: 554\n- Superintendent of Police: 1\n- Assistant SubInspector: 79\n- Circle Inspector: 24\n- Sub Inspector: 52\n- Head Constable: 210\n- Officer on Special Duty: 2\n- Deputy Superintendent of Police: 5\n- Inspector General of Police: 1\n- Inspector Of Police: 1\n\nThese numbers reflect the count of personnel holding each rank who have an active assignment in the district."
+      }
+    },
+    {
+      "name": "largest_unit_by_strength",
+      "query": "Which unit has the most personnel posted?",
+      "category": "Aggregation",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 22.31,
+        "route_source": "hybrid_dynamic",
+        "response": "The unit with the highest number of posted personnel is Guntur Traffic PS, which currently has 90 personnel assigned."
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 4.17,
+        "route_source": "mcp_mode",
+        "response": "The unit with the most personnel posted is Guntur Traffic PS, which has 90 personnel assigned."
+      }
+    },
+    {
+      "name": "constable_count_top_districts",
+      "query": "Which 3 districts have the most Police Constables?",
+      "category": "Aggregation",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 30.11,
+        "route_source": "hybrid_tool:llm",
+        "response": "**Police Constable** personnel are most numerous in **Chittoor district**, followed by **Annamayya district**. No additional district appears in the returned records, so a third district cannot be identified from the current data."
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 3.66,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "department_distribution",
+      "query": "How many personnel are in each department? Group by department name",
+      "category": "Aggregation",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 3.16,
+        "route_source": "hybrid_tool:llm",
+        "response": "Personnel counts by rank (as a proxy for department) are:\n\n- Police Constable – 1,887  \n- Head Constable – 705  \n- Assistant Sub‑Inspector – 274  \n- Sub Inspector – 189  \n- Circle Inspector – 87  \n- Inspector of Police – 31  \n- Superintendent of Police – 27  \n- Deputy Superintendent of Police – 17  \n- Junior Office Assistant – 12  \n- Police Sub Inspector – 11  \n- Additional Superintendent of Police – 5  \n- Inspector General of Police – 5  \n- Woman Police Sub Inspector – 3  \n- Home Guard – 2  \n- Senior Office Assistant – 2  \n- Additional Director General of Police – 2  \n- Director General of Police – 1  \n- Reserved Sub‑Inspector – 1  \n- Officer on Special Duty – 1  \n- Office Superintendent – 1  \n- Administrative Officer – 1  \n- Reserve Police Sub Inspector – 1  \n- Chief Public Relations Officer – 1  \n\nTotal personnel: 3,266."
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 5.05,
+        "route_source": "mcp_mode",
+        "response": "There are 3,265 personnel in the Law & Order Wing department and 1 personnel in the Technical Services department."
+      }
+    },
+    {
+      "name": "rank_per_district_matrix",
+      "query": "Show how many SIs and CIs are in Guntur and Chittoor districts",
+      "category": "Aggregation",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 47.43,
+        "route_source": "hybrid_tool:llm",
+        "response": "**Guntur district** – 8 Sub Inspectors (e.g., Addanki Madhu"
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 18.75,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "units_in_visakhapatnam",
+      "query": "List all police stations in Visakhapatnam district",
+      "category": "Unit hierarchy",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 2.9,
+        "route_source": "hybrid_tool:llm",
+        "response": "Visakhapatnam district police stations:\n\nAnandapuram PS, Arilova PS, Bhimunipatnam PS, Cyber Crime (VSKP) PS, Duvvada PS, Dwaraka PS, Gajuwaka PS, Gajuwaka Traffic PS, Gopalapatnam PS, Harbour PS, I Town PS, I Town Traffic PS, II Town PS, II Town Traffic PS, III Town PS, III Town Traffic PS, IV Town PS, IV Town Traffic PS, Kancharapalem PS, Kancharapalem Traffic PS, Maharanipeta PS, Malkapuram PS, Muvvalavanipalem PS, New Port PS, New Port Traffic PS, PM Palem PS, Padmanabham PS, Pendurthy PS, Steelplant PS, Visakhapatnam Mahila UPS, Visakhapatnam Airport PS."
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 1.54,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "unit_personnel_count",
+      "query": "How many officers are posted at the Guntur Traffic PS unit?",
+      "category": "Unit hierarchy",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 18.98,
+        "route_source": "hybrid_tool:llm",
+        "response": "There are **24 officers** posted at the **Guntur Traffic PS** unit."
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 3.14,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "misspelled_district",
+      "query": "Show officers in Chitoor district",
+      "category": "Edge case",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 4.81,
+        "route_source": "hybrid_tool:heuristic_fallback",
+        "response": "In **Chitoor district** the available data provides only aggregate counts by rank, not individual officer names. The distribution is:\n\n- Police Constable – 1 887  \n- Head Constable – 705  \n- Assistant Sub‑Inspector – 274  \n- Sub Inspector – 189  \n- Circle Inspector – 87  \n- Inspector of Police – 31  \n- Superintendent of Police – 27  \n- Deputy Superintendent of Police – 17  \n- Junior Office Assistant – 12  \n- Police Sub Inspector – 11  \n- Inspector General of Police – 5  \n- Additional Superintendent of Police – 5  \n- Woman Police Sub Inspector – 3"
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 22.85,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "no_objectids_in_response",
+      "query": "Give me full details of the SP of Guntur including unit and district",
+      "category": "Edge case",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 2.57,
+        "route_source": "hybrid_tool:llm",
+        "response": "**Superintendent of Police – Guntur district**\n\n- **Malika Garg** – Badge No. 3001, Mobile +91 96180 88215, Email sp_pcs@appolice.gov.in, Unit: **Technical Services**, District: **Guntur** (active)  \n- **Surya Kotha** – Mobile +91 65048 33859, Email surya.kotha@ai4andhrapolice.com, Unit: **Technical Services**, District: **Guntur** (active)  \n- **Vakul Jindal** – DOB 1991‑09‑08, Mobile +91 86888 31300, Email vakul.jindal@ips.gov.in, Unit: **Guntur DPO**, District: **Guntur** (active)"
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 15.36,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "empty_district_query",
+      "query": "List all officers in Polavaram district",
+      "category": "Edge case",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 2.4,
+        "route_source": "hybrid_tool:heuristic_fallback",
+        "response": "No officers found in Polavaram district."
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 4.86,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "fast_badge_lookup",
+      "query": "Who has badge number 3001?",
+      "category": "Speed test",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 1.05,
+        "route_source": "hybrid_tool:llm",
+        "response": "Found 1 matching personnel record(s) with full details:\n\n1. Malika Garg\n   - User ID: 15026868\n   - Badge No: 3001\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Technical Services (Guntur)\n   - District: Guntur\n   - Gender: Female\n   - Date of birth: N/A\n   - Mobile: +919618088215\n   - Email: sp_pcs@appolice.gov.in\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Technical Services (Guntur)"
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 4.73,
+        "route_source": "mcp_mode",
+        "response": "Badge number 3001 belongs to Superintendent of Police Malika Garg, who serves in the Law & Order Wing department."
+      }
+    },
+    {
+      "name": "fast_phone_lookup",
+      "query": "What is the mobile number of Vakul Jindal?",
+      "category": "Speed test",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 0.96,
+        "route_source": "hybrid_tool:llm",
+        "response": "Found 1 matching personnel record(s) with full details:\n\n1. Vakul Jindal\n   - User ID: 14402876\n   - Badge No: N/A\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Guntur DPO (Guntur)\n   - District: Guntur\n   - Gender: male\n   - Date of birth: 1991-09-08\n   - Mobile: +918688831300\n   - Email: vakul.jindal@ips.gov.in\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Guntur DPO (Guntur)"
+      },
+      "mcp_mode": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 2.85,
+        "route_source": "mcp_mode",
+        "response": "The mobile number of Vakul Jindal is +918688831300."
+      }
+    },
+    {
+      "name": "fast_district_count",
+      "query": "How many districts are there?",
+      "category": "Speed test",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 2.09,
+        "route_source": "hybrid_tool:llm",
+        "response": "There are **30 districts** in total (e.g., Alluri Sitharama Raju, Anakapalli, Ananthapuram, Annamayya, Bapatla, etc.)."
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 0.84,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    },
+    {
+      "name": "fast_total_personnel",
+      "query": "Total number of officers in the system?",
+      "category": "Speed test",
+      "smart_ai": {
+        "passed": true,
+        "failures": [],
+        "duration_s": 3.38,
+        "route_source": "hybrid_tool:llm",
+        "response": "The system contains a total of **3,266 officers**."
+      },
+      "mcp_mode": {
+        "passed": false,
+        "failures": [
+          "Missing keywords (0/1)"
+        ],
+        "duration_s": 1.16,
+        "route_source": "mcp_mode",
+        "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
+      }
+    }
+  ]
+}

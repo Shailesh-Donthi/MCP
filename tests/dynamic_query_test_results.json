@@ -5,10 +5,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 6.88,
+    "duration_s": 5.78,
     "route_source": "hybrid_tool:llm",
     "turns": null,
-    "response": "**Sub‑Inspectors (as returned):**\n\n- A Chiranjivi – Chittoor I Town UPS (Chittoor)  \n- A Padmavathi – DCRB, Chittoor (Chittoor)  \n- A Praveenkumar – DCRB, Chittoor (Chittoor)  \n- A. Venkateswarlu – Madanapalle I Town PS (Annamayya)  \n- Addanki Madhu Pavan – Pedanandipadu PS (Guntur)  \n- Adiandhra Venkata Narayana – (unit/district not listed)  \n- Admin – APSP Head Office (Guntur)  \n- Arekanti Mareppa – Panjani PS (Chittoor)  \n- B Chinna Balaji – B.Kothakota PS"
+    "response": "**Sub‑Inspectors (SI) – full details from the query result**\n\n| Name | User ID | Badge No | Mobile | Email | Date of Birth | Unit (posting) | District | Active |\n|------|---------|----------|--------|-------|---------------|----------------|----------|--------|\n| A Chiranjivi | 14305985 | 158 | +91 9885901901 | chiru2012si@gmail.com | 1987‑01‑26 | Chittoor I Town UPS | Chittoor | Yes |\n| A Padmavathi | 14415787 | 2574 | +91 9966466885 | andareddypadmav"
   },
   {
     "name": "list_all_SPs",
@@ -16,10 +16,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 7.91,
+    "duration_s": 4.25,
     "route_source": "hybrid_tool:llm",
     "turns": null,
-    "response": "Found 7 matching personnel record(s) with full details:\n\n1. A. T. V Ravi Kumar\n   - User ID: 14014257\n   - Badge No: N/A\n   - Rank: Additional Superintendent of Police (ADDL SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Guntur DPO (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1979-02-11\n   - Mobile: +919440195034\n   - Email: atvravi11@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Guntur DPO (Guntur)\n\n2. A.R.Damodhar\n   - User ID: 14402996\n   - Badge No: 20132902\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Vizianagaram DPO (Vizianagaram)\n   - District: Vizianagaram\n   - Gender: Male\n   - Date of birth: 1973-08-12\n   - Mobile: +919121109400\n   - Email: spofvzm@gmail.com\nsp@vzm.appolice.gov.in\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Vizianagaram DPO (Vizianagaram)\n\n3. ADNAN NAYEEM ASMI\n   - User ID: 14385573\n   - Badge No: 4499\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: West Godavari DPO (West Godavari)\n   - District: West Godavari\n   - Gender: Male\n   - Date of birth: N/A\n   - Mobile: +919154965857\n   - Email: spwgbvrm@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * West Godavari DPO (West Godavari)\n\n4. Amit Bardar\n   - User ID: 14402759\n   - Badge No: 9001\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Alluri Sitharama Raju DPO (Alluri Sitharama Raju)\n   - District: Alluri Sitharama Raju\n   - Gender: Male\n   - Date of birth: 1979-08-22\n   - Mobile: +919440796002\n   - Email: sp_asr@appolice.gov.in\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Alluri Sitharama Raju DPO (Alluri Sitharama Raju)\n\n5. B.Umamaheswar\n   - User ID: 14387466\n   - Badge No: N/A\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Bapatla DPO (Bapatla)\n   - District: Bapatla\n   - Gender: Male\n   - Date of birth: N/A\n   - Mobile: +919121102200\n   - Email: spbapatla@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Bapatla DPO (Bapatla)\n\n6. BODDEPALLI KRISHNA RAO\n   - User ID: 14376017\n   - Badge No: N/A\n   - Rank: Superintendent of Police (SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Palnadu DPO (Palnadu)\n   - District: Palnadu\n   - Gender: Male\n   - Date of birth: 1988-05-05\n   - Mobile: +919440796200\n   - Email: sppalnadu@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Palnadu DPO (Palnadu)\n\n7. Bandhar Vallamsetty Madhusudana Rao\n   - User ID: 14218997\n   - Badge No: N/A\n   - Rank: Deputy Superintendent of Police (DSP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Not assigned\n   - District: N/A\n   - Gender: Male\n   - Date of birth: 1968-05-08\n   - Mobile: +918688831476\n   - Email: bvmadhusudanarao9@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A"
+    "response": "**Superintendents of Police (SP) – full details from the query result**\n\n| Name | User ID | Badge No | Mobile | Email | Date of Birth | Unit (posting) | District | Active |\n|------|---------|----------|--------|-------|---------------|----------------|----------|--------|\n| A.R. Damodhar | 14402996 | 20132902 | +91 9121109400 | spofvzm@gmail.com / sp@vzm.appolice.gov.in | 1973‑08‑12 | Vizianagaram DPO | Vizianagaram | Yes |\n| ADNAN NAYEEM ASMI | 14385573 | 4499 | +91 9154965857 | spwgbvrm@gmail.com | – | West Godavari DPO | West Godavari | Yes |\n| Amit Bardar | 14402759 | 9001 | +91 9440796002 | sp_asr@appolice.gov.in | 1979‑08‑22 | Alluri Sitharama Raju DPO | Alluri Sitharama Raju | Yes |\n| B. Umamaheswar | 14387466 | – | +91 9121102200 | spbapatla@gmail.com | – | Bapatla DPO | Bapatla | Yes |\n| BODDEPALLI KRISHNA RAO | 14376017 | – | +91 9440796200 | sppalnadu@gmail.com | 1988‑05‑05 | Palnadu DPO | Palnadu | Yes |\n| Bindu Madhav Garikapati | 14479663 | 4033 | +91 9440796500 | sp_kkd@appolice.gov.in | 1984‑12‑22 | Kakinada DPO | Kakinada"
   },
   {
     "name": "count_personnel_by_rank",
@@ -27,10 +27,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 5.07,
-    "route_source": "hybrid_tool:llm",
+    "duration_s": 2.61,
+    "route_source": "hybrid_tool:llm_cached",
     "turns": null,
-    "response": "**Personnel count by rank**\n\n- Police Constable (PC): 1 887  \n- Head Constable (HC): 705  \n- Assistant Sub‑Inspector (ASI): 274  \n- Sub Inspector (SI): 189  \n- Circle Inspector (CI): 87  \n- Inspector (Inspector): 31  \n- Superintendent of Police (SP): 27  \n- Deputy Superintendent of Police (DSP): 17  \n- Junior Office Assistant (JOA): 12  \n- Police Sub Inspector (PSI): 11  \n- Inspector General of Police (IGP): 5  \n- Additional Superintendent of Police (ADDL SP): 5  \n- Woman Police Sub Inspector (WPSI): 3  \n- Additional Director General of Police (ADGP): 2  \n- Home Guard (HG): 2  \n- Senior Office Assistant (SOA): 2  \n- Office Superintendent (OS): 1  \n- Chief Public Relations Officer (CPRO): 1  \n- Reserve Police Sub Inspector (RPSI): 1  \n- Administrative Officer (AO): 1  \n- Reserved Sub‑Inspector (RSI): 1  \n- Director General of Police (DGP): 1  \n- Officer on Special Duty (OSD): 1  \n\n**Total personnel:** 3 266."
+    "response": "**Personnel count by rank**\n\n| Rank (full title) | Count |\n|-------------------|-------|\n| Police Constable | 1 887 |\n| Head Constable | 705 |\n| Assistant Sub‑Inspector | 274 |\n| Sub Inspector | 189 |\n| Circle Inspector | 87 |\n| Inspector of Police | 31 |\n| Superintendent of Police | 27 |\n| Deputy Superintendent of Police | 17 |\n| Junior Office Assistant | 12 |\n| Police Sub Inspector | 11 |\n| Additional Superintendent of Police | 5 |\n| Inspector General of Police | 5 |\n| Woman Police Sub Inspector | 3 |\n| Senior Office Assistant | 2 |\n| Additional Director General of Police | 2 |\n| Home Guard | 2 |\n| Reserve Police Sub Inspector | 1 |\n| Administrative Officer | 1 |\n| Officer on Special Duty | 1 |\n| Reserved SubInspector | 1 |\n| Director General of Police | 1 |\n| Office Superintendent | 1 |\n| Chief Public Relations Officer | 1 |"
   },
   {
     "name": "personnel_in_district",
@@ -38,10 +38,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 13.54,
-    "route_source": "hybrid_dynamic",
+    "duration_s": 4.76,
+    "route_source": "hybrid_tool:llm",
     "turns": null,
-    "response": "There are 1,417 personnel assigned to the Guntur district."
+    "response": "**Personnel count by rank in Guntur district**\n\n| Rank (full title) | Count |\n|-------------------|-------|\n| Police Constable | 798 |\n| Head Constable | 310 |\n| Assistant Sub‑Inspector | 130 |\n| Sub Inspector | 91 |\n| Circle Inspector | 35 |\n| Deputy Superintendent of Police | 9 |\n| Police Sub Inspector | 9 |\n| Inspector General of Police | 3 |\n| Additional Superintendent of Police | 3 |\n| Superintendent of Police | 2 |\n| Inspector of Police | 1 |\n| Director General of Police | 1 |\n| Woman Police Sub Inspector | 1 |\n\n**Total personnel in Guntur district:** 1 393."
   },
   {
     "name": "sp_of_guntur",
@@ -49,21 +49,23 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 6.07,
-    "route_source": "hybrid_tool:llm",
+    "duration_s": 2.31,
+    "route_source": "hybrid_tool:llm_cached",
     "turns": null,
-    "response": "The Guntur district has three active Superintendents of Police (SP):\n\n1. **Malika Garg** – Technical Services (badge 3001) – Mobile: +919618088215 – Email: sp_pcs@appolice.gov.in  \n2. **Surya Kotha** – Technical Services – Mobile: +916504833859 – Email: surya.kotha@ai4andhrapolice.com  \n3. **Vakul Jindal** – Guntur DPO – Mobile: +918688831300 – Email: vakul.jindal@ips.gov.in"
+    "response": "**Superintendents of Police (SP) in Guntur district**\n\n- **Malika Garg** – Technical Services (SP) – mobile +91 9618088215 – email sp_pcs@appolice.gov.in  \n- **Surya Kotha** – Technical Services (SP) – mobile +91 6504833859 – email surya.kotha@ai4andhrapolice.com  \n- **Vakul Jindal** – Guntur DPO (SP) – mobile +91 8688831300 – email vakul.jindal@ips.gov.in  \n\nAll three are active SPs posted in Guntur district."
   },
   {
     "name": "officers_in_chittoor",
     "query": "List officers posted in Chittoor district",
-    "passed": true,
-    "failures": [],
+    "passed": false,
+    "failures": [
+      "Expected one of ['Chittoor', 'officer', 'personnel', 'posted', 'district', 'Constable', 'PC', 'Inspector'] in response"
+    ],
     "status_code": 200,
-    "duration_s": 15.87,
+    "duration_s": 5877.38,
     "route_source": "hybrid_dynamic",
     "turns": null,
-    "response": "Here is the list of officers currently posted in Chittoor district, including their names, badge numbers, ranks, departments, and units, as retrieved from the system."
+    "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
   },
   {
     "name": "unit_hierarchy",
@@ -73,23 +75,21 @@
       "Expected one of ['Chittoor', 'unit', 'Unit'] in response"
     ],
     "status_code": 200,
-    "duration_s": 11.58,
-    "route_source": "hybrid_tool:llm",
+    "duration_s": 0.09,
+    "route_source": "hybrid_dynamic",
     "turns": null,
-    "response": "No records matched."
+    "response": "I'm sorry, I was not able to find the information for that query. Please try rephrasing."
   },
   {
     "name": "personnel_at_unit",
     "query": "Who are the officers posted at Guntur Urban PS?",
-    "passed": false,
-    "failures": [
-      "Expected one of ['officer', 'personnel', 'posted', 'Guntur'] in response"
-    ],
+    "passed": true,
+    "failures": [],
     "status_code": 200,
-    "duration_s": 3.1,
-    "route_source": "hybrid_tool:llm",
+    "duration_s": 24.75,
+    "route_source": "hybrid_dynamic",
     "turns": null,
-    "response": "Found 3153 assignment records."
+    "response": "No officers are currently posted at Guntur Urban PS according to the system."
   },
   {
     "name": "rank_and_unit_join",
@@ -97,10 +97,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 29.16,
+    "duration_s": 9.12,
     "route_source": "hybrid_dynamic",
     "turns": null,
-    "response": "Here are all the Inspectors and their current posting units:\n\n- K. Ramachandra (Badge No: 5526) – Kalikiri PS, Annamayya\n- Kotreddy Mohan Reddy (Badge No: 5799) – Palamaner UPS, Chittoor\n- Vundela Sudharshan Reddy (Badge No: N/A) – Technical Services, Guntur\n- K. Dharani Kishore (Badge No: 7196) – Ananthapuram DPO, Ananthapuram\n- Muchipalli Venkata Surya Malleswararao (Badge No: 3379) – Eluru DPO, Eluru\n- Rudrapogu Ravi Kumar (Badge No: 53) – Kakinada DPO, Kakinada\n- Mareedu Srinivasarao (Badge No: 3488) – Prakasam DPO, Prakasam\n- P. Siva Sankar (Badge No: 9293) – Kurnool DPO, Kurnool\n- Gujjarlapudi Dasu (Badge No: 3254) – Eluru DPO, Eluru\n- BORRA SRINIVASA REDDY (Badge No: 4338) – Sri Potti Sriramulu Nellore DPO, Sri Potti Sriramulu Nellore\n- Pogiri Kanaka Rao (Badge No: 13) – NTR CPO, NTR\n- Talada Emmanuel Raju (Badge No: 1779) – Srikakulam DPO, Srikakulam\n- Banala Kranthi Kumar (Badge No: 7215) – Ananthapuram DPO, Ananthapuram\n- KUDUPUDI V V N SATYA NARAYANA (Badge No: 3337) – West Godavari DPO, West Godavari\n- Shaik Jakeer (Badge No: 7207) – Ananthapuram DPO, Ananthapuram\n- Pasupuleti Venkata Ramana (Badge No: 9055) – Alluri Sitharama Raju DPO, Alluri Sitharama Raju\n- D Masthan Vali (Badge No: 9663) – Kurnool DPO, Kurnool\n- Nammi Ganesh (Badge No: 3394) – Anakapalli DPO, Anakapalli\n- Geddapu Uma Maheswara Rao (Badge No: 204) – East Godavari DPO, East Godavari\n- NUNNA RAJU (Badge No: 4116) – Krishna DPO, Krishna\n- MD Nissar Basha (Badge No: CI-9675) – Guntur DPO, Guntur\n- Avula Madhu Malleswara Reddy (Badge No: 5556) – YSR Kadapa DPO, YSR Kadapa\n- Dwarampudi Durga Sekhar Reddy (Badge No: 386) – Kakinada DPO, Kakinada\n- Pasupulati Rama Krishna (Badge No: 9692) – Palnadu DPO, Palnadu\n- Atmakuri Satyanarayana (Badge No: 983) – Visakhapatnam CPO, Visakhapatnam\n- C Gopinath Reddy (Badge No: CI-7242) – Sri Sathya Sai DPO, Sri Sathya Sai\n- P. Sobhan Babu (Badge No: 4141) – Vizianagaram DPO, Vizianagaram\n- Tallapudi Sreenu (Badge No: 1668) – Srikakulam DPO, Srikakulam\n- Kesana Venkateswararao (Badge No: 3475) – Prakasam DPO, Prakasam\n- CH. SRINIVASA RAO (Badge No: CI-10) – Parvathipuram Manyam DPO, Parvathipuram Manyam"
+    "response": "No Inspectors with a current posting unit were found in the system."
   },
   {
     "name": "recent_transfers",
@@ -108,7 +108,7 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 9.73,
+    "duration_s": 7.67,
     "route_source": "hybrid_dynamic",
     "turns": null,
     "response": "No recent transfers were found in the last 30 days."
@@ -119,10 +119,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 4.93,
+    "duration_s": 2.91,
     "route_source": "hybrid_tool:llm",
     "turns": null,
-    "response": "**Personnel distribution by rank (total 3,266)**  \n\n- Police Constable (PC): 1,887  \n- Head Constable (HC): 705  \n- Assistant Sub‑Inspector (ASI): 274  \n- Sub Inspector (SI): 189  \n- Circle Inspector (CI): 87  \n- Inspector of Police: 31  \n- Superintendent of Police (SP): 27  \n- Deputy Superintendent of Police (DSP): 17  \n- Junior Office Assistant (JOA): 12  \n- Police Sub Inspector (PSI): 11  \n- Inspector General of Police (IGP): 5  \n- Additional Superintendent of Police (ADDL SP): 5  \n- Woman Police Sub Inspector (WPSI): 3  \n- Additional Director General of Police (ADGP): 2  \n- Home Guard (HG): 2  \n- Senior Office Assistant (SOA): 2  \n- Director General of Police (DGP): 1  \n- Reserved SubInspector (RSI): 1  \n- Administrative Officer (AO): 1  \n- Officer on Special Duty (OSD): 1  \n- Reserve Police Sub Inspector (RPSI): 1  \n- Chief Public Relations Officer (CPRO): 1  \n- Office Superintendent (OS): 1"
+    "response": "**Personnel distribution by rank (total 3,266):**\n\n- Police Constable – 1,887  \n- Head Constable – 705  \n- Assistant Sub‑Inspector – 274  \n- Sub Inspector – 189  \n- Circle Inspector – 87  \n- Inspector of Police – 31  \n- Superintendent of Police – 27  \n- Deputy Superintendent of Police – 17  \n- Junior Office Assistant – 12  \n- Police Sub Inspector – 11  \n- Inspector General of Police – 5  \n- Additional Superintendent of Police – 5  \n- Woman Police Sub Inspector – 3  \n- Additional Director General of Police – 2  \n- Home Guard – 2  \n- Senior Office Assistant – 2  \n- Reserved SubInspector – 1  \n- Officer on Special Duty – 1  \n- Reserve Police Sub Inspector – 1  \n- Administrative Officer – 1  \n- Chief Public Relations Officer – 1  \n- Office Superintendent – 1  \n- Director General of Police – 1"
   },
   {
     "name": "vacancy_report",
@@ -130,10 +130,10 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 5.33,
+    "duration_s": 3.24,
     "route_source": "hybrid_dynamic",
     "turns": null,
-    "response": "I’m sorry, but the system does not contain any vacancy data to list. If you need information about personnel, assignments, or ranks, please let me know!"
+    "response": "I’m sorry, but the system does not contain any vacancy data to list. If you need information about personnel, ranks, or assignments, please let me know!"
   },
   {
     "name": "search_by_name",
@@ -141,7 +141,7 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 3.34,
+    "duration_s": 1.13,
     "route_source": "hybrid_tool:llm",
     "turns": null,
     "response": "Found 14 matching personnel record(s) with full details:\n\n1. A. T. V Ravi Kumar\n   - User ID: 14014257\n   - Badge No: N/A\n   - Rank: Additional Superintendent of Police (ADDL SP)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Guntur DPO (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1979-02-11\n   - Mobile: +919440195034\n   - Email: atvravi11@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Guntur DPO (Guntur)\n\n2. Bisabathuni. Ravi Kumar\n   - User ID: 14159894\n   - Badge No: N/A\n   - Rank: Police Constable (PC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Tadepalli PS (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1988-01-25\n   - Mobile: +919394818900\n   - Email: kumar3737ravi@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Tadepalli PS (Guntur)\n\n3. Chapa Ravi Kumar\n   - User ID: 14166112\n   - Badge No: N/A\n   - Rank: Police Constable (PC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Mangalagiri Rural PS (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1982-07-30\n   - Mobile: +918341695185\n   - Email: chaparavikimar1992@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Mangalagiri Rural PS (Guntur)\n\n4. Dudi Ravi Kumar\n   - User ID: 14300939\n   - Badge No: 4070\n   - Rank: Police Constable (PC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Madanapalle I Town PS (Annamayya)\n   - District: Annamayya\n   - Gender: Male\n   - Date of birth: 1982-03-06\n   - Mobile: +919966414991\n   - Email: ravikph6@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Madanapalle I Town PS (Annamayya)\n\n5. Eate Ravi Kumar\n   - User ID: 14125099\n   - Badge No: N/A\n   - Rank: Head Constable (HC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Guntur Traffic PS (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1971-05-25\n   - Mobile: +919848282882\n   - Email: Mail id pending\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Guntur Traffic PS (Guntur)\n\n6. Golla Ravi Kumar\n   - User ID: 14274034\n   - Badge No: 414\n   - Rank: Sub Inspector (SI)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Sambepalli PS (Annamayya)\n   - District: Annamayya\n   - Gender: Male\n   - Date of birth: 1986-06-15\n   - Mobile: +919160565096\n   - Email: ravi.grk497@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Sambepalli PS (Annamayya)\n\n7. Kakarla Ravi Kumar\n   - User ID: 14300145\n   - Badge No: 3871\n   - Rank: Police Constable (PC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Piler PS (Annamayya)\n   - District: Annamayya\n   - Gender: Male\n   - Date of birth: 1984-03-13\n   - Mobile: +919666133422\n   - Email: kakarlaravikumar007@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Piler PS (Annamayya)\n\n8. Kakirala Ravi Kumar\n   - User ID: 14160020\n   - Badge No: N/A\n   - Rank: Police Constable (PC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: DSB (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1983-10-05\n   - Mobile: +918639422575\n   - Email: ravikumarr7703@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * DSB (Guntur)\n\n9. Maduranthakam Ravi Kumar\n   - User ID: 14281043\n   - Badge No: 3288\n   - Rank: Head Constable (HC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Chittoor I Town UPS (Chittoor)\n   - District: Chittoor\n   - Gender: Male\n   - Date of birth: 1972-08-20\n   - Mobile: +919440078291\n   - Email: madhuranthakamravikumar8291@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Chittoor I Town UPS (Chittoor)\n\n10. Marpu Ravi Kumar\n   - User ID: 14159792\n   - Badge No: N/A\n   - Rank: Head Constable (HC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Pattabhipuram PS (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1988-07-24\n   - Mobile: +919704292930\n   - Email: ravikumar.marpu@gmailc.om\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Pattabhipuram PS (Guntur)\n\n11. Nadimpalli Ravi Kumar\n   - User ID: 14138946\n   - Badge No: N/A\n   - Rank: Sub Inspector (SI)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Lalapet PS (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1964-08-07\n   - Mobile: +919704134517\n   - Email: ravikumarsc1977@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Lalapet PS (Guntur)\n\n12. RAVI KUMAR SENAGASETTI\n   - User ID: 14085179\n   - Badge No: 4575\n   - Rank: Sub Inspector (SI)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: West Godavari DPO (West Godavari)\n   - District: West Godavari\n   - Gender: Male\n   - Date of birth: N/A\n   - Mobile: +919154965944\n   - Email: socialmediawgdt@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * West Godavari DPO (West Godavari)\n\n13. Rudrapogu Ravi Kumar\n   - User ID: 14365390\n   - Badge No: 53\n   - Rank: Inspector Of Police (Inspector)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Kakinada DPO (Kakinada)\n   - District: Kakinada\n   - Gender: Male\n   - Date of birth: 1976-01-27\n   - Mobile: +9183329 57920\n   - Email: rudhrapogu.ravi@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Kakinada DPO (Kakinada)\n\n14. Sankuru Ravi Kumar\n   - User ID: 14163790\n   - Badge No: N/A\n   - Rank: Police Constable (PC)\n   - Department: Law & Order Wing\n   - Status: Active\n   - Unit/Station: Tadepalli PS (Guntur)\n   - District: Guntur\n   - Gender: Male\n   - Date of birth: 1984-05-13\n   - Mobile: +917794927701\n   - Email: rk13051984@gmail.com\n   - Address: N/A\n   - Blood group: N/A\n   - Father name: N/A\n   - Date of joining: N/A\n   - Date of retirement: N/A\n   - Active assignments:\n     * Tadepalli PS (Guntur)"
@@ -149,15 +149,13 @@
   {
     "name": "ambiguous_query",
     "query": "who is in charge",
-    "passed": false,
-    "failures": [
-      "Expected one of ['officer', 'charge', 'unit', 'personnel', 'clarif', 'sorry', 'Sorry', 'please', 'Please'] in response"
-    ],
+    "passed": true,
+    "failures": [],
     "status_code": 200,
-    "duration_s": 20.48,
-    "route_source": "hybrid_tool:llm",
+    "duration_s": 3.94,
+    "route_source": "hybrid_dynamic",
     "turns": null,
-    "response": "Responsible-user check completed."
+    "response": "Could you please specify the unit, district, or rank you are interested in to identify who is in charge?"
   },
   {
     "name": "nonsense_query",
@@ -165,7 +163,7 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 9.98,
+    "duration_s": 2.4,
     "route_source": "hybrid_dynamic",
     "turns": null,
     "response": "I’m sorry, but I can’t help with that request."
@@ -176,9 +174,9 @@
     "passed": true,
     "failures": [],
     "status_code": 200,
-    "duration_s": 8.3,
+    "duration_s": 13.37,
     "route_source": "hybrid_tool:llm",
     "turns": null,
-    "response": "Missing village‑mapping units (policeReferenceId – name – district):\n\n- 656566 – 6thBn, APSP Mangalagiri – Guntur  \n- 2038306 – ACP Crime – Visakhapatnam  \n- 2038308 – ACP Dwaraka Sub Division – Visakhapatnam  \n- 2038303 – ACP East – Visakhapatnam  \n- 2038307 – ACP Harbour Sub Division – Visakhapatnam  \n- 2038305 – ACP North – Visakhapatnam  \n- 2038301 – ACP South – Visakhapatnam  \n- 2038304 – ACP Traffic – Visakhapatnam  \n- 2038300 – ACP West – Visakhapatnam  \n- 2038405 – ADCP, Traffic – Visakhapatnam  \n- 13134 – APSP Head Office – Guntur  \n- 2019222 – Addanki Circle – Prakasam  \n- 2017217 – Addateegala Circle – Polavaram  \n- 54444 – Addl DGP LO – Guntur  \n- 2027207 – Adoni Rural Circle – Kurnool  \n- 2027401 – Adoni SDPO – Kurnool  \n- 2027078 – Adoni Traffic PS – Kurnool  \n- 2018220 – Akivedu Circle – West Godavari  \n- 2027211 – Allagadda Rural Circle – Nandyal  \n- 2027402 – Allagadda SDPO – Nandyal  \n- 2057 – Alluri Sitharama Raju DPO – Alluri Sitharama R"
+    "response": "Missing village‑mapping units (no village assigned):\n\n- 6thBn, APSP Mangalagiri – Guntur (DGP Office)  \n- ACP Crime – Visakhapatnam (Assistant Commissioner Police Office)  \n- ACP Dwaraka Sub Division – Visakhapatnam (Assistant Commissioner Police Office)  \n- ACP East – Visakhapatnam (Assistant Commissioner Police Office)  \n- ACP Harbour Sub Division – Visakhapatnam (Assistant Commissioner Police Office)  \n- ACP North – Visakhapatnam (Assistant Commissioner Police Office)  \n- ACP South – Visakhapatnam (Assistant Commissioner Police Office)  \n- ACP Traffic – Visakhapatnam (Assistant Commissioner Police Office)  \n- ACP West – Visakhapatnam (Assistant Commissioner Police Office)  \n- ADCP, Traffic – Visakhapatnam (Additional Deputy Commissioner Police Office)  \n- Addanki Circle – Prakasam (Circle Office)  \n- Addateegala Circle – Polavaram (Circle Office)  \n- Adoni Rural Circle – Kurnool (Circle Office)  \n- Adoni SDPO – Kurnool (Sub‑Divisional Police Office)  \n- Adoni Traffic PS – Kurnool (Police Station)  \n- Akivedu Circle – West Godavari (Circle Office)  \n- Allagadda Rural Circle – Nandyal (Circle Office)  \n- Allagadda SDPO – Nandyal (Sub‑Divisional Police Office)  \n- Alur Circle – Kurnool (Circle Office)  \n- Amadalavalasa Circle – Srikakulam (Circle Office)  \n- Amalapuram Rural Circle – Dr B R Ambedkar Konaseema (Circle Office)  \n- Amalapuram SDPO – Dr B R Ambedkar Konaseema (Sub‑Divisional Police Office)  \n- Anakapalli CCS PS – Anakapalli (Police Station)  \n- Anakapalli Mahila UPS – Anakapalli (Police Station)  \n- Anakapalli Rural Circle – Anakapalli (Circle Office)  \n- Anakapalli SDPO – Anakapalli (Sub‑Divisional Police Office)  \n- An"
   }
 ]
