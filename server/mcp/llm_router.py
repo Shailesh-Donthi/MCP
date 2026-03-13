@@ -1460,9 +1460,9 @@ class IntelligentQueryHandler:
             }
 
         if tool_name == "dynamic_query":
-            if confidence >= 0.4:
-                # Safety guard: router is overusing dynamic_query with too much confidence.
-                # Fall back to capability help rather than running an unconstrained DB query.
+            if confidence >= 0.4 and route_source not in ("heuristic_only", "heuristic_fallback"):
+                # Safety guard: LLM is overusing dynamic_query with too much confidence.
+                # Skip guard for rule-based routes that intentionally target dynamic_query.
                 reason = "I couldn't find a specific tool for your query."
                 response_text = f"{reason}\n\n{_capability_help_response_text()}".strip()
             else:

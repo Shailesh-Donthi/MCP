@@ -934,6 +934,48 @@ async def natural_language_query(
             "output": output_payload,
         }
 
+    # Handle dynamic_query via the orchestrator (not a registered tool)
+    if tool_name == "dynamic_query":
+        from mcp.core.database import get_database
+        from mcp.orchestration.dynamic_query_orchestrator import DynamicQueryOrchestrator
+        from mcp.tools.dynamic_query_tool import DynamicQueryExecutor
+
+        db = get_database()
+        orchestrator = DynamicQueryOrchestrator(DynamicQueryExecutor(db))
+        dq_result = await orchestrator.run(
+            intent=str(extracted_args.get("intent") or request.query),
+            context=context,
+        )
+        response_text = str(
+            dq_result.get("response")
+            or (dq_result.get("data") or {}).get("answer")
+            or "I couldn't find that information in the database."
+        )
+        output_payload = build_output_payload(
+            query=request.query,
+            response_text=response_text,
+            routed_to="dynamic_query",
+            arguments=extracted_args,
+            result=dq_result,
+            requested_format=request.output_format,
+            allow_download=request.allow_download,
+        )
+        _query_history_set(session_key, response_text)
+        return {
+            "success": bool(dq_result.get("success", True)),
+            "query": request.query,
+            "response": response_text,
+            "routed_to": "dynamic_query",
+            "extracted_arguments": extracted_args,
+            "data": dq_result,
+            "chat_id": request.chat_id,
+            "route_mode": route_mode,
+            "route_source": route_source,
+            "route_confidence": route_confidence,
+            "understood_query": understood_query,
+            "output": output_payload,
+        }
+
     result = await handler.execute(tool_name, extracted_args, context)
     response_text = generate_natural_language_response(
         request.query,

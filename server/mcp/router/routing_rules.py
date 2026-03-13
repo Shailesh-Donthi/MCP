@@ -727,11 +727,12 @@ def repair_route(
         or re.search(r"\branges?\s+(?:count|total|number)\b", query_lower)
     ):
         range_place = _sanitize_district_value(_extract_range_place(primary_query or query) or _extract_range_place(query))
-        args: Dict[str, Any] = {"unit_type_name": "Range"}
         district_candidate = range_place or place
         if district_candidate and district_candidate.lower() not in {"ap", "andhra pradesh"}:
-            args["district_name"] = district_candidate
-        return "search_unit", args
+            args: Dict[str, Any] = {"unit_type_name": "Range", "district_name": district_candidate}
+            return "search_unit", args
+        # System-wide Range count — use dynamic_query since search_unit requires a district
+        return "dynamic_query", {"intent": "Count all units of type Range in the system"}
 
     if (
         re.search(r"\b(?:list|show|get|find)\b", query_lower)
@@ -739,13 +740,13 @@ def repair_route(
         and re.search(r"\branges?\b", query_lower)
     ):
         range_place = _sanitize_district_value(_extract_range_place(primary_query or query) or _extract_range_place(query))
-        args: Dict[str, Any] = {"unit_type_name": "Range"}
         district = range_place or place
         if district:
             district = _sanitize_district_value(re.sub(r"\branges?\b", "", district, flags=re.IGNORECASE).strip())
         if district:
-            args["district_name"] = district
-        return "list_units_in_district", args
+            return "list_units_in_district", {"unit_type_name": "Range", "district_name": district}
+        # No specific district — use dynamic_query for system-wide Range listing
+        return "dynamic_query", {"intent": "List all units of type Range in the system"}
 
     # Prefer unit hierarchy early for typo variants like "heirarchy of chittoor district"
     # before other generic "details/about" or list-style heuristics can interfere.
